@@ -1,0 +1,16 @@
+services:
+  cashsharing:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: cashsharing
+    ports:
+      - "8080:8080"
+    environment:
+      CASH_SHARING_DATA: /data
+      CASH_SHARING_SECRET: change-this-secret
+      CASH_SHARING_ADMIN_USER: admin
+      CASH_SHARING_ADMIN_PASSWORD: admin123
+    volumes:
+      - ./database:/data
+    restart: unless-stopped

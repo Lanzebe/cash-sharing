@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CashSharing</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="index">
+<div class="container">
+
+  <header class="hero">
+    <h1>CashSharing</h1>
+    <p>Split expenses with friends and settle up.</p>
+  </header>
+
+  <section id="login-view" hidden>
+    <form id="login-form" class="card narrow">
+      <h2>Log in</h2>
+      <input name="username" placeholder="Username" autocomplete="username" required>
+      <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <p class="error" id="login-error"></p>
+      <button type="submit">Log in</button>
+    </form>
+  </section>
+
+  <section id="app-view" hidden>
+    <header class="topbar">
+      <h2>Your groups</h2>
+      <button id="logout-btn" class="link">Log out</button>
+    </header>
+
+    <form id="new-group-form" class="card narrow">
+      <h2>New group</h2>
+      <div class="row">
+        <input name="name" placeholder="Group name" required>
+        <button type="submit">Create</button>
+      </div>
+    </form>
+
+    <ul id="group-list" class="group-list"></ul>
+  </section>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

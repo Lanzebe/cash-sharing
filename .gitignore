@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.tmp
+database/users.json
+database/groups.json
+database/groups/
+.env
