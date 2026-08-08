@@ -79,7 +79,7 @@ git remote add origin https://github.com/YOUR_USERNAME/CashSharing.git
 git push -u origin main
 ```
 
-The workflow in `.github/workflows/docker-image.yml` builds the image and pushes it to the **GitHub Container Registry** as `ghcr.io/YOUR_USERNAME/CashSharing`.
+The workflow in `.github/workflows/docker-image.yml` builds the image and pushes it to the **GitHub Container Registry** as `ghcr.io/YOUR_USERNAME/cash-sharing`.
 
 ### 2. Make the image public
 
@@ -88,10 +88,17 @@ The action needs the repo's write permission (already set in the workflow) and t
 ### 3. Add a Custom App in TrueNAS
 
 1. **Apps → Discover Apps → Custom App / Launch Docker Image**.
-2. Container image: `ghcr.io/YOUR_USERNAME/CashSharing`.
+2. Container image: `ghcr.io/YOUR_USERNAME/cash-sharing`, tag `latest`, pull policy `Always`.
 3. Host port **8888** → container port **8080** (or any host port you like).
-4. Mount a **ZFS dataset** to `/data` — this is where all data lives and persists.
-5. Set the environment variables (a strong `CASH_SHARING_SECRET`, and your own `CASH_SHARING_ADMIN_USER/PASSWORD`).
+4. Mount your ZFS dataset (e.g. `/mnt/tank/configs/CashSharing`) to `/data` — this is where all data lives and persists.
+5. Set the environment variables (a strong `CASH_SHARING_SECRET`, and your own `CASH_SHARING_ADMIN_USER/PASSWORD`):
+
+   | Variable | Value |
+   |----------|-------|
+   | `CASH_SHARING_DATA` | `/data` |
+   | `CASH_SHARING_SECRET` | a long random string (`openssl rand -hex 32`) |
+   | `CASH_SHARING_ADMIN_USER` | `admin` |
+   | `CASH_SHARING_ADMIN_PASSWORD` | a strong password |
 
 ### 4. First login
 
