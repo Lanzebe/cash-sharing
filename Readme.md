@@ -15,7 +15,7 @@ Built from the old `main.py` logic — same split math and minimum-settlement al
 
 ## Tech stack
 
-- Backend: **Python + FastAPI** on port `8080`
+- Backend: **Python + FastAPI** on port `8081`
 - Frontend: plain **HTML/CSS/JS** served by the backend at `/`
 - Storage: one `.csv` per group + `users.json` + `groups.json` (mounted data)
 - Auth: JWT in an HTTP-only cookie
@@ -39,10 +39,10 @@ Requires Python 3.10+.
 cd backend
 pip install -r requirements.txt
 cd ..
-uvicorn backend.main:app --host 0.0.0.0 --port 8080
+uvicorn backend.main:app --host 0.0.0.0 --port 8081
 ```
 
-Open http://localhost:8080
+Open http://localhost:8081
 
 First run creates a default user (see Environment variables below). Log in and use it.
 
@@ -52,7 +52,7 @@ First run creates a default user (see Environment variables below). Log in and u
 docker compose up --build
 ```
 
-Open http://localhost:8080
+Open http://localhost:8081
 
 ## Environment variables
 
@@ -89,7 +89,7 @@ The action needs the repo's write permission (already set in the workflow) and t
 
 1. **Apps → Discover Apps → Custom App / Launch Docker Image**.
 2. Container image: `ghcr.io/YOUR_USERNAME/cash-sharing`, tag `latest`, pull policy `Always`.
-3. Host port **8888** → container port **8080** (or any host port you like).
+3. Host port **8888** → container port **8081** (or any host port you like).
 4. Mount your ZFS dataset (e.g. `/mnt/tank/configs/CashSharing`) to `/data` — this is where all data lives and persists.
 5. Set the environment variables (a strong `CASH_SHARING_SECRET`, and your own `CASH_SHARING_ADMIN_USER/PASSWORD`):
 
