@@ -188,8 +188,10 @@ async function initGroup() {
   $("#currency-form").addEventListener("submit", onChangeCurrency);
 
   window.SPLIT_MODE = "percent";
+  window.EDITING_TID = null;
   $("#mode-percent").addEventListener("click", () => setSplitMode("percent"));
   $("#mode-amount").addEventListener("click", () => setSplitMode("amount"));
+  $("#edit-cancel").addEventListener("click", cancelEdit);
 
   window.MEMBERS = [];
   window.IS_OWNER = false;
@@ -260,30 +262,51 @@ function fillPaidBy(members) {
   }
 }
 
-function buildSplitInputs(members) {
+function defaultSplitValues(members) {
+  const values = {};
+  const n = members.length || 1;
+  if (window.SPLIT_MODE === "percent") {
+    const base = Math.floor((100 / n) * 100) / 100;
+    members.forEach((m, i) => {
+      values[m] = i === members.length - 1
+        ? Math.round((100 - base * (n - 1)) * 100) / 100
+        : base;
+    });
+  } else {
+    members.forEach((m) => { values[m] = 0; });
+  }
+  return values;
+}
+
+function buildSplitInputs(members, prefill) {
   const row = $("#split-row");
   row.innerHTML = "";
-  const share = Math.round((100 / members.length) * 100) / 100;
+  const values = prefill || defaultSplitValues(members);
+  const unitText = window.SPLIT_MODE === "amount" ? window.CURRENCY : "%";
   for (const m of members) {
-    const label = document.createElement("label");
-    label.className = "split-item";
-    const span = document.createElement("span");
-    span.textContent = memberLabel(m);
+    const item = document.createElement("div");
+    item.className = "split-item";
+    const name = document.createElement("span");
+    name.className = "split-name";
+    name.textContent = memberLabel(m);
+    const unit = document.createElement("span");
+    unit.className = "split-unit";
+    unit.textContent = unitText;
     const input = document.createElement("input");
     input.type = "number";
     input.min = "0";
-    input.step = window.SPLIT_MODE === "percent" ? "0.01" : "0.01";
-    input.value = window.SPLIT_MODE === "amount" ? "0" : share;
+    input.step = "0.01";
+    input.className = "split-input";
+    input.value = values[m];
     input.dataset.pct = m;
-    const amount = document.createElement("input");
-    amount.type = "text";
-    amount.readOnly = true;
-    amount.className = "split-amount";
-    amount.dataset.amount = m;
-    label.appendChild(span);
-    label.appendChild(input);
-    label.appendChild(amount);
-    row.appendChild(label);
+    const out = document.createElement("span");
+    out.className = "split-out";
+    out.dataset.amount = m;
+    item.appendChild(name);
+    item.appendChild(unit);
+    item.appendChild(input);
+    item.appendChild(out);
+    row.appendChild(item);
   }
   recomputeSplit();
 }
@@ -292,32 +315,46 @@ function setSplitMode(mode) {
   window.SPLIT_MODE = mode;
   $("#mode-percent").classList.toggle("active", mode === "percent");
   $("#mode-amount").classList.toggle("active", mode === "amount");
-  $("#new-txn-form").elements.total_amount.readOnly = mode === "amount";
+  const totalEl = $("#new-txn-form").elements.total_amount;
   if (mode === "amount") {
-    $("#new-txn-form").elements.total_amount.value = "";
+    totalEl.readOnly = true;
+    totalEl.value = "";
+  } else {
+    totalEl.readOnly = false;
   }
+  $("#total-unit").textContent = window.CURRENCY;
   buildSplitInputs(window.MEMBERS);
 }
 
 function recomputeSplit() {
   const f = $("#new-txn-form");
+  const totalEl = f.elements.total_amount;
   if (window.SPLIT_MODE === "amount") {
     let total = 0;
+    const vals = {};
     for (const m of window.MEMBERS) {
       const amt = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
+      vals[m] = amt;
       total += amt;
-      const pctEl = document.querySelector(`[data-amount="${m}"]`);
-      pctEl.value = total > 0 ? `${((amt / total) * 100).toFixed(2)}%` : "";
     }
-    f.elements.total_amount.value = total > 0 ? total.toFixed(2) : "";
+    totalEl.value = total > 0 ? total.toFixed(2) : "";
+    for (const m of window.MEMBERS) {
+      document.querySelector(`[data-amount="${m}"]`).textContent =
+        total > 0 ? `${((vals[m] / total) * 100).toFixed(2)}%` : "";
+    }
+    $("#split-total").textContent = total > 0 ? `Total ${fmt(total)}` : "";
     return;
   }
-  const total = parseFloat(f.elements.total_amount.value) || 0;
+  const total = parseFloat(totalEl.value) || 0;
+  let sum = 0;
   for (const m of window.MEMBERS) {
     const pct = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
-    const amt = document.querySelector(`[data-amount="${m}"]`);
-    amt.value = fmt((total * pct) / 100);
+    sum += pct;
+    document.querySelector(`[data-amount="${m}"]`).textContent = fmt((total * pct) / 100);
   }
+  const totalEl2 = $("#split-total");
+  totalEl2.textContent = `Split total: ${sum.toFixed(2)}%`;
+  totalEl2.classList.toggle("bad", Math.round(sum * 100) !== 10000);
 }
 
 async function onAddTransaction(e) {
@@ -327,6 +364,18 @@ async function onAddTransaction(e) {
   for (const m of window.MEMBERS) {
     split[m] = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
   }
+  if (window.SPLIT_MODE === "percent") {
+    const sum = window.MEMBERS.reduce((acc, m) => acc + (split[m] || 0), 0);
+    if (Math.round(sum * 100) !== 10000) {
+      const last = window.MEMBERS[window.MEMBERS.length - 1];
+      const adjusted = 100 - (sum - (split[last] || 0));
+      if (adjusted < 0) {
+        alert("Split percentages exceed 100%");
+        return;
+      }
+      split[last] = Math.round(adjusted * 100) / 100;
+    }
+  }
   const body = {
     description: f.description.value,
     total_amount: parseFloat(f.total_amount.value) || 0,
@@ -335,21 +384,59 @@ async function onAddTransaction(e) {
     split_mode: window.SPLIT_MODE,
     tag: f.tag.value,
   };
+  const isEdit = !!window.EDITING_TID;
+  const base = `/api/groups/${encodeURIComponent(window.GID)}/transactions`;
+  const url = isEdit ? `${base}/${encodeURIComponent(window.EDITING_TID)}` : base;
   try {
-    const res = await api(`/api/groups/${encodeURIComponent(window.GID)}/transactions`, {
-      method: "POST",
-      body,
-    });
+    const res = await api(url, { method: isEdit ? "PUT" : "POST", body });
     const fileInput = $("#receipt-input");
     if (fileInput && fileInput.files.length) {
-      await uploadReceipt(window.GID, res.id, fileInput.files[0]);
+      await uploadReceipt(window.GID, isEdit ? window.EDITING_TID : res.id, fileInput.files[0]);
     }
-    f.reset();
-    setSplitMode("percent");
+    cancelEdit();
     await loadGroup();
   } catch (err) {
     alert(err.message);
   }
+}
+
+function loadTransactionIntoForm(t) {
+  window.EDITING_TID = t.id;
+  const f = $("#new-txn-form");
+  setSplitMode(t.split_mode === "amount" ? "amount" : "percent");
+  f.description.value = t.description || "";
+  f.total_amount.value = t.total_amount || "";
+  if (!f.tag.querySelector(`option[value="${CSS.escape(t.tag)}"]`)) {
+    const opt = document.createElement("option");
+    opt.value = t.tag;
+    opt.textContent = t.tag;
+    f.tag.appendChild(opt);
+  }
+  f.tag.value = t.tag;
+  const payer = Object.keys(t.paid_by || {})[0];
+  if (payer && f.paid_by.querySelector(`option[value="${CSS.escape(payer)}"]`)) {
+    f.paid_by.value = payer;
+  }
+  $("#receipt-input").value = "";
+  const values = {};
+  for (const m of window.MEMBERS) {
+    values[m] = ((t.split_mode === "amount" ? t.split_amounts : t.split_percent) || {})[m] ?? 0;
+  }
+  buildSplitInputs(window.MEMBERS, values);
+  $("#txn-section-title").textContent = "Edit transaction";
+  $("#txn-submit").textContent = "Save changes";
+  $("#edit-cancel").hidden = false;
+  document.querySelector("#new-txn-form").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function cancelEdit() {
+  window.EDITING_TID = null;
+  const f = $("#new-txn-form");
+  f.reset();
+  $("#txn-section-title").textContent = "Add transaction";
+  $("#txn-submit").textContent = "Add transaction";
+  $("#edit-cancel").hidden = true;
+  setSplitMode("percent");
 }
 
 async function uploadReceipt(gid, tid, file) {
@@ -484,8 +571,9 @@ function renderTransactions(transactions) {
       `<td>${paidBy}</td>` +
       `<td>${split}</td>` +
       `<td>${receipt}</td>` +
-      `<td><button class="danger" data-del="${esc(t.id)}">Delete</button></td>`;
+      `<td><button class="edit-btn" data-edit="${esc(t.id)}">Edit</button> <button class="danger" data-del="${esc(t.id)}">Delete</button></td>`;
     tbody.appendChild(tr);
+    tr.querySelector("[data-edit]").addEventListener("click", () => loadTransactionIntoForm(t));
     tr.querySelector("[data-del]").addEventListener("click", () => onDeleteTransaction(t.id));
   }
 }

@@ -64,23 +64,32 @@
   </section>
 
   <section>
-    <h2>Add transaction</h2>
+    <h2 id="txn-section-title">Add transaction</h2>
     <form id="new-txn-form" class="card">
-      <div class="row">
-        <input name="description" placeholder="Description" required>
-        <input name="total_amount" type="number" min="0.01" step="0.01" placeholder="Total amount" required>
-        <select name="tag" id="tag-select" required></select>
-        <select name="paid_by" id="paid-by-select" required></select>
-      </div>
       <div class="split-modes">
         <button type="button" id="mode-percent" class="split-mode active">Split by %</button>
         <button type="button" id="mode-amount" class="split-mode">Fixed amounts</button>
       </div>
+      <div class="row">
+        <input name="description" placeholder="Description" required>
+      </div>
+      <div class="row">
+        <span class="unit-wrap">
+          <span class="unit" id="total-unit">ZAR</span>
+          <input name="total_amount" type="number" min="0.01" step="0.01" placeholder="Total amount" required>
+        </span>
+        <select name="tag" id="tag-select" required></select>
+        <select name="paid_by" id="paid-by-select" required></select>
+      </div>
       <div id="split-row" class="split-row"></div>
+      <p class="split-total" id="split-total"></p>
       <div class="row">
         <input type="file" name="receipt" id="receipt-input" accept="image/*">
       </div>
-      <button type="submit">Add transaction</button>
+      <div class="form-actions">
+        <button type="submit" id="txn-submit">Add transaction</button>
+        <button type="button" id="edit-cancel" class="link" hidden>Cancel edit</button>
+      </div>
     </form>
   </section>
 

@@ -190,6 +190,17 @@ def add_transaction(gid, transaction):
         write_transactions(gid, txns)
 
 
+def replace_transaction(gid, tid, transaction):
+    with _lock:
+        txns = read_transactions(gid)
+        for i, t in enumerate(txns):
+            if t["id"] == tid:
+                txns[i] = transaction
+                write_transactions(gid, txns)
+                return True
+        return False
+
+
 def set_transaction_receipt(gid, tid, filename):
     with _lock:
         txns = read_transactions(gid)

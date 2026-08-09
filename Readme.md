@@ -11,7 +11,7 @@ Built from the old `main.py` logic — same split math and minimum-settlement al
 - Multiple groups; every transaction belongs to a group
 - Create groups and add other users (or guests) as members
 - Per-group currency (default `ZAR`), set at creation and changeable by the group owner
-- Add transactions with a single payer and two split modes: by percentage, or by a fixed amount each person owes (total is the sum of those amounts)
+- Add transactions with a single payer and two split modes: by percentage, or by a fixed amount each person owes (total is the sum of those amounts). Edit any transaction after the fact
 - Attach a photo of a slip or tax invoice to any transaction (PNG/JPG/WebP/GIF, up to 15 MB), viewable from the transactions table
 - Auto-calculated balances, minimum settlements, and spending-by-tag
 - Dark mode by default, with a light/dark switch in the corner that remembers your choice

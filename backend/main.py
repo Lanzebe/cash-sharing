@@ -266,10 +266,7 @@ def list_transactions(gid: str, username: str = Depends(current_user)):
     return storage.read_transactions(gid)
 
 
-@app.post("/api/groups/{gid}/transactions")
-def add_transaction(gid: str, body: AddTransactionBody, username: str = Depends(current_user)):
-    group = member_group(gid, username)
-
+def _build_transaction(group, body, tid=None):
     mode = body.split_mode
     if mode not in ("percent", "amount"):
         raise HTTPException(status_code=400, detail="split_mode must be 'percent' or 'amount'")
@@ -316,8 +313,8 @@ def add_transaction(gid: str, body: AddTransactionBody, username: str = Depends(
         group["tags"].append(tag)
         storage.save_group(group)
 
-    transaction = {
-        "id": uuid.uuid4().hex[:8],
+    return {
+        "id": tid or uuid.uuid4().hex[:8],
         "description": body.description,
         "total_amount": total,
         "paid_by": paid_by,
@@ -327,8 +324,28 @@ def add_transaction(gid: str, body: AddTransactionBody, username: str = Depends(
         "receipt": "",
         "tag": tag,
     }
+
+
+@app.post("/api/groups/{gid}/transactions")
+def add_transaction(gid: str, body: AddTransactionBody, username: str = Depends(current_user)):
+    group = member_group(gid, username)
+    transaction = _build_transaction(group, body)
     storage.add_transaction(gid, transaction)
     return {"ok": True, "id": transaction["id"]}
+
+
+@app.put("/api/groups/{gid}/transactions/{tid}")
+def edit_transaction(gid: str, tid: str, body: AddTransactionBody, username: str = Depends(current_user)):
+    group = member_group(gid, username)
+    txns = storage.read_transactions(gid)
+    existing = next((t for t in txns if t["id"] == tid), None)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    transaction = _build_transaction(group, body, tid=tid)
+    transaction["receipt"] = existing.get("receipt", "")
+    if not storage.replace_transaction(gid, tid, transaction):
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return {"ok": True, "id": tid}
 
 
 @app.delete("/api/groups/{gid}/transactions/{tid}")
