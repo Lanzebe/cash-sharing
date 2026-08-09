@@ -3,7 +3,8 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -22,6 +23,9 @@ import storage
 FRONTEND_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend"
 )
+
+ALLOWED_RECEIPT_EXTS = {"jpg", "jpeg", "png", "webp", "gif"}
+MAX_RECEIPT_BYTES = 15 * 1024 * 1024
 
 
 @asynccontextmanager
@@ -47,8 +51,18 @@ class LoginBody(BaseModel):
     password: str
 
 
+class RegisterBody(BaseModel):
+    username: str
+    password: str
+
+
 class CreateGroupBody(BaseModel):
     name: str
+    currency: str = "ZAR"
+
+
+class SetCurrencyBody(BaseModel):
+    currency: str
 
 
 class AddMemberBody(BaseModel):
@@ -57,10 +71,11 @@ class AddMemberBody(BaseModel):
 
 class AddTransactionBody(BaseModel):
     description: str
-    total_amount: float
+    total_amount: float | None = None
     paid_by: Any
-    split_percent: dict
+    split: dict
     tag: str = ""
+    split_mode: str = "percent"
 
 
 class AddTagBody(BaseModel):
@@ -111,6 +126,33 @@ def login(body: LoginBody, response: Response):
     return {"ok": True, "username": username}
 
 
+@app.post("/register")
+def register(body: RegisterBody, response: Response):
+    username = body.username.strip()
+    password = body.password
+    if not username or len(username) > 64:
+        raise HTTPException(status_code=400, detail="Username must be 1-64 characters")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if storage.get_user(username):
+        raise HTTPException(status_code=409, detail="Username already taken")
+    storage.save_user({
+        "username": username,
+        "password_hash": hash_password(password),
+        "display_name": username,
+    })
+    token = create_token(username)
+    response.set_cookie(
+        COOKIE_NAME,
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=COOKIE_SECURE,
+        max_age=TOKEN_TTL_HOURS * 3600,
+    )
+    return {"ok": True, "username": username}
+
+
 @app.post("/logout")
 def logout(response: Response):
     response.delete_cookie(COOKIE_NAME)
@@ -130,7 +172,13 @@ def me(username: str = Depends(current_user)):
 @app.get("/api/groups")
 def list_my_groups(username: str = Depends(current_user)):
     return [
-        {"id": g["id"], "name": g["name"], "owner": g["owner"], "members": g["members"]}
+        {
+            "id": g["id"],
+            "name": g["name"],
+            "owner": g["owner"],
+            "members": g["members"],
+            "currency": g["currency"],
+        }
         for g in storage.list_groups()
         if username in g["members"]
     ]
@@ -141,28 +189,51 @@ def create_group(body: CreateGroupBody, username: str = Depends(current_user)):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Group name is required")
-    group = storage.create_group(name, username)
-    return {"id": group["id"], "name": group["name"], "owner": group["owner"], "members": group["members"]}
-
-
-@app.get("/api/groups/{gid}")
-def get_group(gid: str, username: str = Depends(current_user)):
-    group = member_group(gid, username)
+    currency = body.currency.strip().upper()
+    if not currency or len(currency) != 3 or not currency.isalpha():
+        raise HTTPException(status_code=400, detail="Currency must be a 3-letter code")
+    group = storage.create_group(name, username, currency=currency)
     return {
         "id": group["id"],
         "name": group["name"],
         "owner": group["owner"],
         "members": group["members"],
+        "currency": group["currency"],
+    }
+
+
+@app.get("/api/groups/{gid}")
+def get_group(gid: str, username: str = Depends(current_user)):
+    group = member_group(gid, username)
+    registered = set(storage.list_users())
+    return {
+        "id": group["id"],
+        "name": group["name"],
+        "owner": group["owner"],
+        "members": group["members"],
+        "currency": group["currency"],
+        "registered_members": [m for m in group["members"] if m in registered],
         "tags": group["tags"],
     }
+
+
+@app.put("/api/groups/{gid}/currency")
+def set_currency(gid: str, body: SetCurrencyBody, username: str = Depends(current_user)):
+    group = owner_group(gid, username)
+    currency = body.currency.strip().upper()
+    if not currency or len(currency) != 3 or not currency.isalpha():
+        raise HTTPException(status_code=400, detail="Currency must be a 3-letter code")
+    group["currency"] = currency
+    storage.save_group(group)
+    return {"currency": group["currency"]}
 
 
 @app.post("/api/groups/{gid}/members")
 def add_member(gid: str, body: AddMemberBody, username: str = Depends(current_user)):
     group = owner_group(gid, username)
     new_member = body.username.strip()
-    if not storage.get_user(new_member):
-        raise HTTPException(status_code=404, detail=f"No user named '{new_member}'")
+    if not new_member:
+        raise HTTPException(status_code=400, detail="Member name is required")
     if new_member in group["members"]:
         raise HTTPException(status_code=400, detail="Already a member")
     group["members"].append(new_member)
@@ -199,15 +270,32 @@ def list_transactions(gid: str, username: str = Depends(current_user)):
 def add_transaction(gid: str, body: AddTransactionBody, username: str = Depends(current_user)):
     group = member_group(gid, username)
 
-    total = float(body.total_amount)
-    if total <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+    mode = body.split_mode
+    if mode not in ("percent", "amount"):
+        raise HTTPException(status_code=400, detail="split_mode must be 'percent' or 'amount'")
 
-    split = {p: float(v) for p, v in body.split_percent.items()}
+    split = {p: float(v) for p, v in body.split.items()}
     if set(split) != set(group["members"]):
         raise HTTPException(status_code=400, detail="Every member must appear in the split")
-    if sum(split.values()) != 100:
-        raise HTTPException(status_code=400, detail="Split percentages must add up to 100")
+    if any(v < 0 for v in split.values()):
+        raise HTTPException(status_code=400, detail="Split values must not be negative")
+
+    if mode == "percent":
+        total = float(body.total_amount or 0)
+        if total <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+        if round(sum(split.values()), 4) != 100:
+            raise HTTPException(status_code=400, detail="Split percentages must add up to 100")
+        split_amounts = {p: (v / 100.0) * total for p, v in split.items()}
+        split_percent = split
+    else:
+        total = sum(split.values())
+        if total <= 0:
+            raise HTTPException(status_code=400, detail="Amounts must add up to more than zero")
+        split_amounts = split
+        split_percent = {
+            p: round(v / total * 100, 4) for p, v in split.items()
+        }
 
     paid_by = body.paid_by
     if isinstance(paid_by, str):
@@ -233,8 +321,10 @@ def add_transaction(gid: str, body: AddTransactionBody, username: str = Depends(
         "description": body.description,
         "total_amount": total,
         "paid_by": paid_by,
-        "split_percent": split,
-        "split_amounts": {p: (v / 100.0) * total for p, v in split.items()},
+        "split_percent": split_percent,
+        "split_amounts": split_amounts,
+        "split_mode": mode,
+        "receipt": "",
         "tag": tag,
     }
     storage.add_transaction(gid, transaction)
@@ -244,8 +334,79 @@ def add_transaction(gid: str, body: AddTransactionBody, username: str = Depends(
 @app.delete("/api/groups/{gid}/transactions/{tid}")
 def delete_transaction(gid: str, tid: str, username: str = Depends(current_user)):
     member_group(gid, username)
-    if not storage.delete_transaction(gid, tid):
+    txns = storage.read_transactions(gid)
+    entry = next((t for t in txns if t["id"] == tid), None)
+    if not entry or not storage.delete_transaction(gid, tid):
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if entry.get("receipt"):
+        path = os.path.join(storage.RECEIPTS_DIR, gid, entry["receipt"])
+        if os.path.isfile(path):
+            os.remove(path)
+    return {"ok": True}
+
+
+@app.post("/api/groups/{gid}/transactions/{tid}/receipt")
+async def upload_receipt(
+    gid: str,
+    tid: str,
+    file: UploadFile = File(...),
+    username: str = Depends(current_user),
+):
+    member_group(gid, username)
+    if not gid.isalnum() or not tid.isalnum():
+        raise HTTPException(status_code=400, detail="Invalid id")
+    file_type = (file.content_type or "").lower()
+    if not file_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files are allowed")
+    ext = file_type.split("/")[-1].lower()
+    if ext not in ALLOWED_RECEIPT_EXTS:
+        raise HTTPException(status_code=400, detail="Unsupported image type")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(content) > MAX_RECEIPT_BYTES:
+        raise HTTPException(status_code=413, detail="Image is too large (max 15 MB)")
+    txns = storage.read_transactions(gid)
+    if not any(t["id"] == tid for t in txns):
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    receipt_dir = os.path.join(storage.RECEIPTS_DIR, gid)
+    os.makedirs(receipt_dir, exist_ok=True)
+    path = os.path.join(receipt_dir, f"{tid}.{ext}")
+    with open(path, "wb") as f:
+        f.write(content)
+    storage.set_transaction_receipt(gid, tid, f"{tid}.{ext}")
+    return {"ok": True, "receipt": f"{tid}.{ext}"}
+
+
+@app.get("/api/groups/{gid}/transactions/{tid}/receipt")
+def get_receipt(gid: str, tid: str, username: str = Depends(current_user)):
+    member_group(gid, username)
+    if not gid.isalnum() or not tid.isalnum():
+        raise HTTPException(status_code=400, detail="Invalid id")
+    txns = storage.read_transactions(gid)
+    entry = next((t for t in txns if t["id"] == tid), None)
+    if not entry or not entry.get("receipt"):
+        raise HTTPException(status_code=404, detail="No receipt for this transaction")
+    path = os.path.join(storage.RECEIPTS_DIR, gid, entry["receipt"])
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Receipt file missing")
+    return FileResponse(path)
+
+
+@app.delete("/api/groups/{gid}/transactions/{tid}/receipt")
+def delete_receipt(gid: str, tid: str, username: str = Depends(current_user)):
+    member_group(gid, username)
+    if not gid.isalnum() or not tid.isalnum():
+        raise HTTPException(status_code=400, detail="Invalid id")
+    txns = storage.read_transactions(gid)
+    entry = next((t for t in txns if t["id"] == tid), None)
+    if not entry or not entry.get("receipt"):
+        raise HTTPException(status_code=404, detail="No receipt for this transaction")
+    path = os.path.join(storage.RECEIPTS_DIR, gid, entry["receipt"])
+    if os.path.isfile(path):
+        os.remove(path)
+    storage.clear_transaction_receipt(gid, tid)
     return {"ok": True}
 
 

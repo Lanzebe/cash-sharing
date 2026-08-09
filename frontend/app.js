@@ -1,12 +1,30 @@
 const $ = (sel) => document.querySelector(sel);
 
+const CURRENCIES = ["ZAR", "EUR", "USD", "GBP", "AUD", "CAD", "JPY", "CHF", "NZD"];
+
 function fmt(n) {
   const v = Number(n) || 0;
+  const cur = window.CURRENCY || "ZAR";
   return v.toLocaleString("en-US", {
     style: "currency",
-    currency: "ZAR",
+    currency: cur,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+  });
+}
+
+function initThemeToggle() {
+  const btn = $("#theme-toggle");
+  if (!btn) return;
+  const update = () => {
+    const dark = document.documentElement.dataset.theme !== "light";
+    btn.textContent = dark ? "☀️" : "🌙";
+  };
+  update();
+  btn.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem("theme", next);
   });
 }
 
@@ -44,6 +62,9 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function initIndex() {
+  window.CURRENCY = "ZAR";
+  initThemeToggle();
+
   let me = null;
   try {
     me = await api("/me");
@@ -53,7 +74,17 @@ async function initIndex() {
     showApp(me);
   } else {
     $("#login-view").hidden = false;
+    $("#login-form").hidden = false;
   }
+
+  const showTab = (which) => {
+    $("#login-form").hidden = which !== "login";
+    $("#register-form").hidden = which !== "register";
+    $("#show-login").classList.toggle("active", which === "login");
+    $("#show-register").classList.toggle("active", which === "register");
+  };
+  $("#show-login").addEventListener("click", () => showTab("login"));
+  $("#show-register").addEventListener("click", () => showTab("register"));
 
   $("#login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -62,6 +93,22 @@ async function initIndex() {
     errEl.textContent = "";
     try {
       await api("/login", {
+        method: "POST",
+        body: { username: f.username.value, password: f.password.value },
+      });
+      window.location.reload();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  });
+
+  $("#register-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const errEl = $("#register-error");
+    errEl.textContent = "";
+    try {
+      await api("/register", {
         method: "POST",
         body: { username: f.username.value, password: f.password.value },
       });
@@ -82,7 +129,7 @@ async function initIndex() {
     try {
       const g = await api("/api/groups", {
         method: "POST",
-        body: { name: f.name.value },
+        body: { name: f.name.value, currency: f.currency.value },
       });
       window.location.href = `/group.html?id=${encodeURIComponent(g.id)}`;
     } catch (err) {
@@ -128,6 +175,7 @@ async function initGroup() {
   }
 
   $("#back-link").addEventListener("click", () => { location.href = "/"; });
+  initThemeToggle();
   $("#logout-btn").addEventListener("click", async () => {
     await api("/logout", { method: "POST" }).catch(() => {});
     location.href = "/";
@@ -137,16 +185,43 @@ async function initGroup() {
   $("#new-txn-form").addEventListener("input", recomputeSplit);
   $("#add-member-form").addEventListener("submit", onAddMember);
   $("#new-tag-form").addEventListener("submit", onAddTag);
+  $("#currency-form").addEventListener("submit", onChangeCurrency);
+
+  window.SPLIT_MODE = "percent";
+  $("#mode-percent").addEventListener("click", () => setSplitMode("percent"));
+  $("#mode-amount").addEventListener("click", () => setSplitMode("amount"));
 
   window.MEMBERS = [];
   window.IS_OWNER = false;
+  window.CURRENCY = "ZAR";
+  window.REGISTERED = new Set();
 
   await loadGroup();
+}
+
+function memberLabel(m) {
+  return window.REGISTERED.has(m) ? m : `${m} (guest)`;
+}
+
+async function onChangeCurrency(e) {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api(`/api/groups/${encodeURIComponent(window.GID)}/currency`, {
+      method: "PUT",
+      body: { currency: f.currency.value },
+    });
+    await loadGroup();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 async function loadGroup() {
   const group = await api(`/api/groups/${encodeURIComponent(window.GID)}`);
   window.MEMBERS = group.members;
+  window.CURRENCY = group.currency;
+  window.REGISTERED = new Set(group.registered_members || []);
   const me = (await api("/me")).username;
   window.IS_OWNER = group.owner === me;
 
@@ -157,7 +232,21 @@ async function loadGroup() {
   renderTags(group.tags);
   renderMembers(group.members);
   buildSplitInputs(group.members);
+  populateCurrencySelect();
+  $("#currency-section").hidden = !window.IS_OWNER;
   await loadSummary();
+}
+
+function populateCurrencySelect() {
+  const sel = $("#group-currency-select");
+  sel.innerHTML = "";
+  for (const c of CURRENCIES) {
+    const opt = document.createElement("option");
+    opt.value = c;
+    opt.textContent = c;
+    opt.selected = c === window.CURRENCY;
+    sel.appendChild(opt);
+  }
 }
 
 function fillPaidBy(members) {
@@ -166,7 +255,7 @@ function fillPaidBy(members) {
   for (const m of members) {
     const opt = document.createElement("option");
     opt.value = m;
-    opt.textContent = `Paid by ${m}`;
+    opt.textContent = `Paid by ${memberLabel(m)}`;
     sel.appendChild(opt);
   }
 }
@@ -179,13 +268,12 @@ function buildSplitInputs(members) {
     const label = document.createElement("label");
     label.className = "split-item";
     const span = document.createElement("span");
-    span.textContent = m;
+    span.textContent = memberLabel(m);
     const input = document.createElement("input");
     input.type = "number";
     input.min = "0";
-    input.max = "100";
-    input.step = "0.01";
-    input.value = share;
+    input.step = window.SPLIT_MODE === "percent" ? "0.01" : "0.01";
+    input.value = window.SPLIT_MODE === "amount" ? "0" : share;
     input.dataset.pct = m;
     const amount = document.createElement("input");
     amount.type = "text";
@@ -200,8 +288,31 @@ function buildSplitInputs(members) {
   recomputeSplit();
 }
 
+function setSplitMode(mode) {
+  window.SPLIT_MODE = mode;
+  $("#mode-percent").classList.toggle("active", mode === "percent");
+  $("#mode-amount").classList.toggle("active", mode === "amount");
+  $("#new-txn-form").elements.total_amount.readOnly = mode === "amount";
+  if (mode === "amount") {
+    $("#new-txn-form").elements.total_amount.value = "";
+  }
+  buildSplitInputs(window.MEMBERS);
+}
+
 function recomputeSplit() {
-  const total = parseFloat($("#new-txn-form").elements.total_amount.value) || 0;
+  const f = $("#new-txn-form");
+  if (window.SPLIT_MODE === "amount") {
+    let total = 0;
+    for (const m of window.MEMBERS) {
+      const amt = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
+      total += amt;
+      const pctEl = document.querySelector(`[data-amount="${m}"]`);
+      pctEl.value = total > 0 ? `${((amt / total) * 100).toFixed(2)}%` : "";
+    }
+    f.elements.total_amount.value = total > 0 ? total.toFixed(2) : "";
+    return;
+  }
+  const total = parseFloat(f.elements.total_amount.value) || 0;
   for (const m of window.MEMBERS) {
     const pct = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
     const amt = document.querySelector(`[data-amount="${m}"]`);
@@ -212,26 +323,45 @@ function recomputeSplit() {
 async function onAddTransaction(e) {
   e.preventDefault();
   const f = e.target;
-  const split_percent = {};
+  const split = {};
   for (const m of window.MEMBERS) {
-    split_percent[m] = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
+    split[m] = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
   }
   const body = {
     description: f.description.value,
-    total_amount: parseFloat(f.total_amount.value),
+    total_amount: parseFloat(f.total_amount.value) || 0,
     paid_by: f.paid_by.value,
-    split_percent,
+    split,
+    split_mode: window.SPLIT_MODE,
     tag: f.tag.value,
   };
   try {
-    await api(`/api/groups/${encodeURIComponent(window.GID)}/transactions`, {
+    const res = await api(`/api/groups/${encodeURIComponent(window.GID)}/transactions`, {
       method: "POST",
       body,
     });
+    const fileInput = $("#receipt-input");
+    if (fileInput && fileInput.files.length) {
+      await uploadReceipt(window.GID, res.id, fileInput.files[0]);
+    }
     f.reset();
+    setSplitMode("percent");
     await loadGroup();
   } catch (err) {
     alert(err.message);
+  }
+}
+
+async function uploadReceipt(gid, tid, file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    await api(`/api/groups/${encodeURIComponent(gid)}/transactions/${encodeURIComponent(tid)}/receipt`, {
+      method: "POST",
+      body: fd,
+    });
+  } catch (err) {
+    alert(`Transaction added, but receipt upload failed: ${err.message}`);
   }
 }
 
@@ -323,24 +453,37 @@ for (const [person, amount] of bEntries) {
   renderTransactions(s.transactions);
 }
 
+function splitLabel(t) {
+  if (t.split_mode === "amount") {
+    return Object.entries(t.split_amounts)
+      .map(([p, a]) => `${esc(p)} ${fmt(a)}`)
+      .join(", ");
+  }
+  return Object.entries(t.split_percent)
+    .map(([p, pct]) => `${esc(p)} ${pct}%`)
+    .join(", ");
+}
+
 function renderTransactions(transactions) {
   const tbody = $("#txn-body");
   tbody.innerHTML = "";
   $("#txn-empty").hidden = transactions.length > 0;
   for (const t of transactions) {
     const tr = document.createElement("tr");
-    const split = Object.entries(t.split_percent)
-      .map(([p, pct]) => `${esc(p)} ${pct}%`)
-      .join(", ");
+    const split = splitLabel(t);
     const paidBy = Object.entries(t.paid_by)
       .map(([p, a]) => `${esc(p)} ${fmt(a)}`)
       .join(", ");
+    const receipt = t.receipt
+      ? `<a class="link" target="_blank" rel="noopener" href="/api/groups/${encodeURIComponent(window.GID)}/transactions/${encodeURIComponent(t.id)}/receipt">View</a>`
+      : "<span class='muted'>—</span>";
     tr.innerHTML =
       `<td>${esc(t.description)}</td>` +
       `<td><span class="pill">${esc(t.tag)}</span></td>` +
       `<td>${fmt(t.total_amount)}</td>` +
       `<td>${paidBy}</td>` +
       `<td>${split}</td>` +
+      `<td>${receipt}</td>` +
       `<td><button class="danger" data-del="${esc(t.id)}">Delete</button></td>`;
     tbody.appendChild(tr);
     tr.querySelector("[data-del]").addEventListener("click", () => onDeleteTransaction(t.id));
@@ -352,7 +495,10 @@ function renderMembers(members) {
   list.innerHTML = "";
   for (const m of members) {
     const li = document.createElement("li");
-    li.textContent = m;
+    li.textContent = memberLabel(m);
+    if (!window.REGISTERED.has(m)) {
+      li.dataset.guest = "true";
+    }
     list.appendChild(li);
   }
 }

@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CashSharing</title>
   <link rel="stylesheet" href="/styles.css">
+  <script>
+    (function () {
+      var t = localStorage.getItem("theme") || "dark";
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
 </head>
 <body data-page="group">
 <div class="container">
@@ -12,6 +18,7 @@
   <header class="topbar">
     <button id="back-link" class="link">&larr; Groups</button>
     <h1 id="group-name">Group</h1>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme"></button>
     <button id="logout-btn" class="link">Log out</button>
   </header>
 
@@ -46,6 +53,7 @@
             <th>Amount</th>
             <th>Paid by</th>
             <th>Split</th>
+            <th>Receipt</th>
             <th></th>
           </tr>
         </thead>
@@ -64,7 +72,14 @@
         <select name="tag" id="tag-select" required></select>
         <select name="paid_by" id="paid-by-select" required></select>
       </div>
+      <div class="split-modes">
+        <button type="button" id="mode-percent" class="split-mode active">Split by %</button>
+        <button type="button" id="mode-amount" class="split-mode">Fixed amounts</button>
+      </div>
       <div id="split-row" class="split-row"></div>
+      <div class="row">
+        <input type="file" name="receipt" id="receipt-input" accept="image/*">
+      </div>
       <button type="submit">Add transaction</button>
     </form>
   </section>
@@ -74,8 +89,18 @@
     <ul id="member-list" class="chips"></ul>
     <form id="add-member-form" class="card narrow">
       <div class="row">
-        <input name="username" placeholder="Username to add" required>
+        <input name="username" placeholder="Name or username to add (guest if no account)" required>
         <button type="submit">Add member</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="currency-section" hidden>
+    <h2>Currency</h2>
+    <form id="currency-form" class="card narrow">
+      <div class="row">
+        <select name="currency" id="group-currency-select"></select>
+        <button type="submit">Change currency</button>
       </div>
     </form>
   </section>

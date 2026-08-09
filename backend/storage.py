@@ -15,6 +15,7 @@ DATA_DIR = os.path.abspath(
 GROUPS_DIR = os.path.join(DATA_DIR, "groups")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
 GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")
+RECEIPTS_DIR = os.path.join(DATA_DIR, "receipts")
 
 CSV_COLUMNS = [
     "Id",
@@ -25,6 +26,8 @@ CSV_COLUMNS = [
     "Split Person",
     "Split Percent",
     "Split Amount",
+    "Split Mode",
+    "Receipt",
 ]
 
 _lock = threading.Lock()
@@ -77,13 +80,14 @@ def get_group(gid):
     return None
 
 
-def create_group(name, owner):
+def create_group(name, owner, currency="ZAR"):
     with _lock:
         group = {
             "id": uuid.uuid4().hex[:8],
             "name": name,
             "owner": owner,
             "members": [owner],
+            "currency": currency,
             "tags": list(default_tags),
         }
         groups = list_groups()
@@ -146,6 +150,8 @@ def read_transactions(gid):
                 "paid_by": _parse_paid_by(r["Paid By"]),
                 "split_percent": {},
                 "split_amounts": {},
+                "split_mode": r.get("Split Mode") or "percent",
+                "receipt": r.get("Receipt") or "",
             }
             order.append(tid)
         pct = float(r["Split Percent"])
@@ -168,6 +174,8 @@ def write_transactions(gid, transactions):
                 "Split Person": person,
                 "Split Percent": t["split_percent"][person],
                 "Split Amount": t["split_amounts"].get(person, 0),
+                "Split Mode": t.get("split_mode", "percent"),
+                "Receipt": t.get("receipt", ""),
             })
     with open(_group_csv(gid), "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
@@ -180,6 +188,21 @@ def add_transaction(gid, transaction):
         txns = read_transactions(gid)
         txns.append(transaction)
         write_transactions(gid, txns)
+
+
+def set_transaction_receipt(gid, tid, filename):
+    with _lock:
+        txns = read_transactions(gid)
+        for t in txns:
+            if t["id"] == tid:
+                t["receipt"] = filename
+                write_transactions(gid, txns)
+                return True
+        return False
+
+
+def clear_transaction_receipt(gid, tid):
+    return set_transaction_receipt(gid, tid, "")
 
 
 def delete_transaction(gid, tid):

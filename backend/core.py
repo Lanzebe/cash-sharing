@@ -2,11 +2,13 @@ from collections import defaultdict
 
 
 class Transaction:
-    def __init__(self, description, paid_by, split_percent, total_amount, tag, tid=None):
+    def __init__(self, description, paid_by, split_percent, total_amount, tag, tid=None,
+                 split_mode="percent", split_amounts=None, receipt=""):
         self.id = tid
         self.description = description
         self.total_amount = float(total_amount)
         self.tag = tag
+        self.receipt = receipt
 
         if isinstance(paid_by, str):
             self.paid_by = {paid_by: self.total_amount}
@@ -15,11 +17,15 @@ class Transaction:
         else:
             raise ValueError("paid_by must be string or dict")
 
+        self.split_mode = split_mode
         self.split_percent = {p: float(pct) for p, pct in split_percent.items()}
-        self.split_amounts = {
-            p: (pct / 100.0) * self.total_amount
-            for p, pct in self.split_percent.items()
-        }
+        if split_amounts is not None:
+            self.split_amounts = {p: float(a) for p, a in split_amounts.items()}
+        else:
+            self.split_amounts = {
+                p: (pct / 100.0) * self.total_amount
+                for p, pct in self.split_percent.items()
+            }
 
 
 class ExpenseManager:
@@ -82,6 +88,8 @@ def to_dict(t):
         "paid_by": t.paid_by,
         "split_percent": t.split_percent,
         "split_amounts": t.split_amounts,
+        "split_mode": t.split_mode,
+        "receipt": t.receipt,
         "tag": t.tag,
     }
 
@@ -94,4 +102,7 @@ def from_dict(d):
         paid_by=d["paid_by"],
         split_percent=d["split_percent"],
         tag=d["tag"],
+        split_mode=d.get("split_mode", "percent"),
+        split_amounts=d.get("split_amounts"),
+        receipt=d.get("receipt", ""),
     )

@@ -5,23 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CashSharing</title>
   <link rel="stylesheet" href="/styles.css">
+  <script>
+    (function () {
+      var t = localStorage.getItem("theme") || "dark";
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
 </head>
 <body data-page="index">
 <div class="container">
 
   <header class="hero">
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme"></button>
     <h1>CashSharing</h1>
     <p>Split expenses with friends and settle up.</p>
   </header>
 
   <section id="login-view" hidden>
-    <form id="login-form" class="card narrow">
-      <h2>Log in</h2>
-      <input name="username" placeholder="Username" autocomplete="username" required>
-      <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
-      <p class="error" id="login-error"></p>
-      <button type="submit">Log in</button>
-    </form>
+    <div class="card narrow">
+      <div class="auth-tabs">
+        <button type="button" id="show-login" class="tab active">Log in</button>
+        <button type="button" id="show-register" class="tab">Create account</button>
+      </div>
+      <form id="login-form" hidden>
+        <input name="username" placeholder="Username" autocomplete="username" required>
+        <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+        <p class="error" id="login-error"></p>
+        <button type="submit">Log in</button>
+      </form>
+      <form id="register-form" hidden>
+        <input name="username" placeholder="Username" autocomplete="username" required>
+        <input name="password" type="password" placeholder="Password (min 6 characters)" autocomplete="new-password" required>
+        <p class="error" id="register-error"></p>
+        <button type="submit">Create account</button>
+      </form>
+    </div>
   </section>
 
   <section id="app-view" hidden>
@@ -34,6 +52,17 @@
       <h2>New group</h2>
       <div class="row">
         <input name="name" placeholder="Group name" required>
+        <select name="currency" id="currency-select" title="Currency">
+          <option value="ZAR" selected>ZAR</option>
+          <option value="EUR">EUR</option>
+          <option value="USD">USD</option>
+          <option value="GBP">GBP</option>
+          <option value="AUD">AUD</option>
+          <option value="CAD">CAD</option>
+          <option value="JPY">JPY</option>
+          <option value="CHF">CHF</option>
+          <option value="NZD">NZD</option>
+        </select>
         <button type="submit">Create</button>
       </div>
     </form>
