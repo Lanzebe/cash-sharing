@@ -74,20 +74,32 @@ python manage.py delete-user <email>            # members stay in groups as gues
 python manage.py delete-group <gid>
 ```
 
-Or inside the container (data lives in your mounted `/data`):
+On a host running `docker compose`:
 
 ```bash
 docker compose exec cashsharing python backend/manage.py list-users
 ```
 
+On TrueNAS (or any host with plain Docker): `manage.py` is inside the container at `/app/backend/`, not on the data volume — the mount only contains data. Find the container and exec into it:
+
+```bash
+docker ps                                          # find the container name (e.g. cashsharing)
+docker exec -it <container> python /app/backend/manage.py list-users
+docker exec -it <container> python /app/backend/manage.py show-group <gid>
+```
+
+The container already has `CASH_SHARING_DATA=/data` set, so the commands act on your mounted data.
+
 For a full audit you can also read the files directly (they are human-readable JSON/CSV):
 
 ```bash
-cat database/users.json                 # accounts: email, display_name, password_hash
-cat database/groups.json                # groups: id, name, owner, members, currency, tags
-cat "database/groups/<gid>.csv"         # all transactions of a group
-ls -R database/receipts                 # uploaded receipt images, one file per transaction
+cat users.json                  # accounts: email, display_name, password_hash
+cat groups.json                 # groups: id, name, owner, members, currency, tags
+cat "groups/<gid>.csv"          # all transactions of a group
+ls -R receipts                  # uploaded receipt images, one file per transaction
 ```
+
+The examples above assume you are inside the data directory (e.g. `cd /mnt/tank/configs/CashSharing` on TrueNAS).
 
 ## Environment variables
 
