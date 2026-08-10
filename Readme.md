@@ -83,12 +83,22 @@ docker compose exec cashsharing python backend/manage.py list-users
 On TrueNAS (or any host with plain Docker): `manage.py` is inside the container at `/app/backend/`, not on the data volume — the mount only contains data. Find the container and exec into it:
 
 ```bash
-docker ps                                          # find the container name (e.g. cashsharing)
-docker exec -it <container> python /app/backend/manage.py list-users
-docker exec -it <container> python /app/backend/manage.py show-group <gid>
+sudo docker ps                                        # list containers; find the app one (TrueNAS names it ix-<app>-1)
+sudo docker exec -it <container> python backend/manage.py list-users
+sudo docker exec -it <container> python backend/manage.py show-group <gid>
 ```
 
-The container already has `CASH_SHARING_DATA=/data` set, so the commands act on your mounted data.
+Example on TrueNAS (app name "cash-sharing"):
+
+```bash
+sudo docker exec -it ix-cash-sharing-cash-sharing-1 python backend/manage.py list-users
+```
+
+Notes:
+- `sudo` is needed because your shell user is not in the `docker` group (you'll see *permission denied* on `docker ps` without it).
+- `docker compose exec ...` does **not** work here: TrueNAS deploys the app directly, so there is no compose file on the host.
+- The container already has `CASH_SHARING_DATA=/data` set, so the commands act on your mounted data.
+- The path is `backend/manage.py` because the container's working directory is `/app`.
 
 For a full audit you can also read the files directly (they are human-readable JSON/CSV):
 
