@@ -329,7 +329,8 @@ async function initGroup() {
 }
 
 function memberLabel(m) {
-  return window.REGISTERED.has(m) ? m : `${m} (guest)`;
+  if (!window.REGISTERED.has(m)) return `${m} (guest)`;
+  return (window.DISPLAY_NAMES && window.DISPLAY_NAMES[m]) || m;
 }
 
 async function onChangeCurrency(e) {
@@ -351,6 +352,7 @@ async function loadGroup() {
   window.MEMBERS = group.members;
   window.CURRENCY = group.currency;
   window.REGISTERED = new Set(group.registered_members || []);
+  window.DISPLAY_NAMES = group.display_names || {};
   const meData = await api("/me");
   const meEmail = meData.email;
   window.IS_OWNER = group.owner === meEmail;
@@ -640,7 +642,7 @@ async function loadSummary() {
   } else {
 for (const [person, amount] of bEntries) {
       const li = document.createElement("li");
-      li.textContent = `${esc(person)} ${amount < 0 ? "owes" : "is owed"} ${fmt(Math.abs(amount))}`;
+      li.textContent = `${esc(memberLabel(person))} ${amount < 0 ? "owes" : "is owed"} ${fmt(Math.abs(amount))}`;
       balances.appendChild(li);
     }
   }
@@ -652,7 +654,7 @@ for (const [person, amount] of bEntries) {
   } else {
     for (const st of s.settlements) {
       const li = document.createElement("li");
-      li.textContent = `${esc(st.debtor)} → ${esc(st.creditor)}: ${fmt(st.amount)}`;
+      li.textContent = `${esc(memberLabel(st.debtor))} → ${esc(memberLabel(st.creditor))}: ${fmt(st.amount)}`;
       settlements.appendChild(li);
     }
   }
@@ -676,11 +678,11 @@ for (const [person, amount] of bEntries) {
 function splitLabel(t) {
   if (t.split_mode === "amount") {
     return Object.entries(t.split_amounts)
-      .map(([p, a]) => `${esc(p)} ${fmt(a)}`)
+      .map(([p, a]) => `${esc(memberLabel(p))} ${fmt(a)}`)
       .join(", ");
   }
   return Object.entries(t.split_percent)
-    .map(([p, pct]) => `${esc(p)} ${pct}%`)
+    .map(([p, pct]) => `${esc(memberLabel(p))} ${pct}%`)
     .join(", ");
 }
 
@@ -692,7 +694,7 @@ function renderTransactions(transactions) {
     const tr = document.createElement("tr");
     const split = splitLabel(t);
     const paidBy = Object.entries(t.paid_by)
-      .map(([p, a]) => `${esc(p)} ${fmt(a)}`)
+      .map(([p, a]) => `${esc(memberLabel(p))} ${fmt(a)}`)
       .join(", ");
     const receipt = t.receipt
       ? `<a class="link" target="_blank" rel="noopener" href="/api/groups/${encodeURIComponent(window.GID)}/transactions/${encodeURIComponent(t.id)}/receipt">View</a>`

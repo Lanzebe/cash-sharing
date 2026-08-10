@@ -253,6 +253,11 @@ def get_group(gid: str, email: str = Depends(current_user)):
         "members": group["members"],
         "currency": group["currency"],
         "registered_members": [m for m in group["members"] if m in registered],
+        "display_names": {
+            m: (storage.get_user(m) or {}).get("display_name", m)
+            for m in group["members"]
+            if m in registered
+        },
         "tags": group["tags"],
     }
 

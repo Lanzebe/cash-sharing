@@ -23,6 +23,20 @@ from auth import hash_password
 import storage
 
 
+def resolve_user_key(name):
+    """Return the stored account key that matches `name`, case-insensitively.
+
+    Accounts created before the email switch may be stored with the original
+    casing (e.g. "Ash"), while CLI input is lowercased, so match against the
+    actual stored key.
+    """
+    needle = name.strip().lower()
+    for key in storage.list_users():
+        if key.strip().lower() == needle:
+            return key
+    return None
+
+
 def cmd_list_users(args):
     users = storage.list_users()
     if not users:
@@ -57,31 +71,30 @@ def cmd_show_group(args):
 
 
 def cmd_reset_password(args):
-    email = args.email.strip().lower()
-    user = storage.get_user(email)
-    if not user:
-        sys.exit(f"No such user: {email}")
+    key = resolve_user_key(args.email)
+    if not key:
+        sys.exit(f"No such user: {args.email}")
     if len(args.password) < 6:
         sys.exit("Password must be at least 6 characters")
+    user = storage.get_user(key)
     storage.save_user({
-        "email": email,
+        "email": key,
         "password_hash": hash_password(args.password),
-        "display_name": user.get("display_name", email),
+        "display_name": user.get("display_name", key),
     })
-    print(f"Password updated for {email}")
+    print(f"Password updated for {key}")
 
 
 def cmd_delete_user(args):
-    email = args.email.strip().lower()
-    user = storage.get_user(email)
-    if not user:
-        sys.exit(f"No such user: {email}")
+    key = resolve_user_key(args.email)
+    if not key:
+        sys.exit(f"No such user: {args.email}")
     groups_with_member = [
-        g for g in storage.list_groups() if email in g["members"]
+        g for g in storage.list_groups() if key in g["members"]
     ]
     with storage._lock:
         users = storage.list_users()
-        users.pop(email, None)
+        users.pop(key, None)
         tmp = storage.USERS_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(users, f, indent=2)
@@ -89,12 +102,12 @@ def cmd_delete_user(args):
 
     if groups_with_member:
         print(
-            f"Removed account {email}. It is still listed in "
+            f"Removed account {key}. It is still listed in "
             f"{len(groups_with_member)} group(s) as a guest member: "
             f"{', '.join(g['name'] for g in groups_with_member)}"
         )
     else:
-        print(f"Deleted user {email}. Not a member of any group.")
+        print(f"Deleted user {key}. Not a member of any group.")
 
 
 def cmd_delete_group(args):
@@ -111,8 +124,8 @@ def cmd_create_user(args):
         sys.exit("Not a valid email address")
     if len(args.password) < 6:
         sys.exit("Password must be at least 6 characters")
-    if storage.get_user(email):
-        sys.exit(f"An account with {email} already exists (use reset-password)")
+    if resolve_user_key(email):
+        sys.exit(f"An account with {args.email} already exists (use reset-password)")
     storage.save_user({
         "email": email,
         "password_hash": hash_password(args.password),
