@@ -9,7 +9,7 @@ services:
     environment:
       CASH_SHARING_DATA: /data
       CASH_SHARING_SECRET: ASDFGHJKL
-      CASH_SHARING_ADMIN_USER: admin
+      CASH_SHARING_ADMIN_EMAIL: admin@example.com
       CASH_SHARING_ADMIN_PASSWORD: admin123
     volumes:
       - ./database:/data

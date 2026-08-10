@@ -32,14 +32,14 @@ MAX_RECEIPT_BYTES = 15 * 1024 * 1024
 async def lifespan(app):
     storage.ensure_dirs()
     if not storage.list_users():
-        username = os.environ.get("CASH_SHARING_ADMIN_USER", "admin")
+        email = os.environ.get("CASH_SHARING_ADMIN_EMAIL", "admin@example.com")
         password = os.environ.get("CASH_SHARING_ADMIN_PASSWORD", "admin123")
         storage.save_user({
-            "username": username,
+            "email": email,
             "password_hash": hash_password(password),
-            "display_name": username,
+            "display_name": email,
         })
-        print(f"Created default user: {username} / {password} — change it!")
+        print(f"Created default user: {email} / {password} — change it!")
     yield
 
 
@@ -47,12 +47,12 @@ app = FastAPI(title="CashSharing", lifespan=lifespan)
 
 
 class LoginBody(BaseModel):
-    username: str
+    email: str
     password: str
 
 
 class RegisterBody(BaseModel):
-    username: str
+    email: str
     password: str
 
 
@@ -66,7 +66,7 @@ class SetCurrencyBody(BaseModel):
 
 
 class AddMemberBody(BaseModel):
-    username: str
+    member: str
 
 
 class AddTransactionBody(BaseModel):
@@ -82,6 +82,17 @@ class AddTagBody(BaseModel):
     tag: str
 
 
+class SetDisplayNameBody(BaseModel):
+    display_name: str
+
+
+def normalize_email(raw: str) -> str:
+    email = (raw or "").strip().lower()
+    if not email or len(email) > 254 or "@" not in email:
+        raise HTTPException(status_code=400, detail="Not a valid email address")
+    return email
+
+
 def current_user(request: Request) -> str:
     token = request.cookies.get(COOKIE_NAME)
     if not token:
@@ -92,29 +103,35 @@ def current_user(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Session expired, please log in again")
 
 
-def member_group(gid: str, username: str):
+def member_group(gid: str, email: str):
     group = storage.get_group(gid)
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    if username not in group["members"]:
+    if email not in group["members"]:
         raise HTTPException(status_code=403, detail="You are not a member of this group")
     return group
 
 
-def owner_group(gid: str, username: str):
-    group = member_group(gid, username)
-    if group["owner"] != username:
+def owner_group(gid: str, email: str):
+    group = member_group(gid, email)
+    if group["owner"] != email:
         raise HTTPException(status_code=403, detail="Only the group owner can do that")
     return group
 
 
+def group_balance(group, email: str) -> float:
+    transactions = [from_dict(t) for t in storage.read_transactions(group["id"])]
+    manager = ExpenseManager(transactions)
+    return round(manager.balances().get(email, 0.0), 2)
+
+
 @app.post("/login")
 def login(body: LoginBody, response: Response):
-    username = body.username.strip()
-    user = storage.get_user(username)
+    email = normalize_email(body.email)
+    user = storage.get_user(email)
     if not user or not verify_password(body.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    token = create_token(username)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_token(email)
     response.set_cookie(
         COOKIE_NAME,
         token,
@@ -123,25 +140,22 @@ def login(body: LoginBody, response: Response):
         secure=COOKIE_SECURE,
         max_age=TOKEN_TTL_HOURS * 3600,
     )
-    return {"ok": True, "username": username}
+    return {"ok": True, "email": email}
 
 
 @app.post("/register")
 def register(body: RegisterBody, response: Response):
-    username = body.username.strip()
-    password = body.password
-    if not username or len(username) > 64:
-        raise HTTPException(status_code=400, detail="Username must be 1-64 characters")
-    if len(password) < 6:
+    email = normalize_email(body.email)
+    if len(body.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    if storage.get_user(username):
-        raise HTTPException(status_code=409, detail="Username already taken")
+    if storage.get_user(email):
+        raise HTTPException(status_code=409, detail="An account with that email already exists")
     storage.save_user({
-        "username": username,
-        "password_hash": hash_password(password),
-        "display_name": username,
+        "email": email,
+        "password_hash": hash_password(body.password),
+        "display_name": email,
     })
-    token = create_token(username)
+    token = create_token(email)
     response.set_cookie(
         COOKIE_NAME,
         token,
@@ -150,7 +164,7 @@ def register(body: RegisterBody, response: Response):
         secure=COOKIE_SECURE,
         max_age=TOKEN_TTL_HOURS * 3600,
     )
-    return {"ok": True, "username": username}
+    return {"ok": True, "email": email}
 
 
 @app.post("/logout")
@@ -160,17 +174,42 @@ def logout(response: Response):
 
 
 @app.get("/me")
-def me(username: str = Depends(current_user)):
+def me(email: str = Depends(current_user)):
+    user = storage.get_user(email)
     groups = [
-        {"id": g["id"], "name": g["name"], "members": g["members"]}
+        {
+            "id": g["id"],
+            "name": g["name"],
+            "owner": g["owner"],
+            "members": g["members"],
+            "currency": g["currency"],
+            "balance": group_balance(g, email),
+        }
         for g in storage.list_groups()
-        if username in g["members"]
+        if email in g["members"]
     ]
-    return {"username": username, "groups": groups}
+    return {
+        "email": email,
+        "display_name": user.get("display_name") if user else email,
+        "groups": groups,
+    }
+
+
+@app.put("/me")
+def set_me(body: SetDisplayNameBody, email: str = Depends(current_user)):
+    display_name = body.display_name.strip()
+    if not display_name or len(display_name) > 64:
+        raise HTTPException(status_code=400, detail="Display name must be 1-64 characters")
+    user = storage.get_user(email)
+    if not user:
+        raise HTTPException(status_code=404, detail="No such account")
+    user["display_name"] = display_name
+    storage.save_user(user)
+    return {"ok": True, "display_name": display_name}
 
 
 @app.get("/api/groups")
-def list_my_groups(username: str = Depends(current_user)):
+def list_my_groups(email: str = Depends(current_user)):
     return [
         {
             "id": g["id"],
@@ -178,21 +217,22 @@ def list_my_groups(username: str = Depends(current_user)):
             "owner": g["owner"],
             "members": g["members"],
             "currency": g["currency"],
+            "balance": group_balance(g, email),
         }
         for g in storage.list_groups()
-        if username in g["members"]
+        if email in g["members"]
     ]
 
 
 @app.post("/api/groups")
-def create_group(body: CreateGroupBody, username: str = Depends(current_user)):
+def create_group(body: CreateGroupBody, email: str = Depends(current_user)):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Group name is required")
     currency = body.currency.strip().upper()
     if not currency or len(currency) != 3 or not currency.isalpha():
         raise HTTPException(status_code=400, detail="Currency must be a 3-letter code")
-    group = storage.create_group(name, username, currency=currency)
+    group = storage.create_group(name, email, currency=currency)
     return {
         "id": group["id"],
         "name": group["name"],
@@ -203,8 +243,8 @@ def create_group(body: CreateGroupBody, username: str = Depends(current_user)):
 
 
 @app.get("/api/groups/{gid}")
-def get_group(gid: str, username: str = Depends(current_user)):
-    group = member_group(gid, username)
+def get_group(gid: str, email: str = Depends(current_user)):
+    group = member_group(gid, email)
     registered = set(storage.list_users())
     return {
         "id": group["id"],
@@ -218,8 +258,8 @@ def get_group(gid: str, username: str = Depends(current_user)):
 
 
 @app.put("/api/groups/{gid}/currency")
-def set_currency(gid: str, body: SetCurrencyBody, username: str = Depends(current_user)):
-    group = owner_group(gid, username)
+def set_currency(gid: str, body: SetCurrencyBody, email: str = Depends(current_user)):
+    group = owner_group(gid, email)
     currency = body.currency.strip().upper()
     if not currency or len(currency) != 3 or not currency.isalpha():
         raise HTTPException(status_code=400, detail="Currency must be a 3-letter code")
@@ -229,9 +269,9 @@ def set_currency(gid: str, body: SetCurrencyBody, username: str = Depends(curren
 
 
 @app.post("/api/groups/{gid}/members")
-def add_member(gid: str, body: AddMemberBody, username: str = Depends(current_user)):
-    group = owner_group(gid, username)
-    new_member = body.username.strip()
+def add_member(gid: str, body: AddMemberBody, email: str = Depends(current_user)):
+    group = owner_group(gid, email)
+    new_member = body.member.strip().lower()
     if not new_member:
         raise HTTPException(status_code=400, detail="Member name is required")
     if new_member in group["members"]:
@@ -242,8 +282,8 @@ def add_member(gid: str, body: AddMemberBody, username: str = Depends(current_us
 
 
 @app.delete("/api/groups/{gid}/members/{member}")
-def remove_member(gid: str, member: str, username: str = Depends(current_user)):
-    group = owner_group(gid, username)
+def remove_member(gid: str, member: str, email: str = Depends(current_user)):
+    group = owner_group(gid, email)
     if member == group["owner"]:
         raise HTTPException(status_code=400, detail="Cannot remove the owner")
     if member not in group["members"]:
@@ -254,15 +294,15 @@ def remove_member(gid: str, member: str, username: str = Depends(current_user)):
 
 
 @app.delete("/api/groups/{gid}")
-def delete_group(gid: str, username: str = Depends(current_user)):
-    owner_group(gid, username)
+def delete_group(gid: str, email: str = Depends(current_user)):
+    owner_group(gid, email)
     storage.delete_group(gid)
     return {"ok": True}
 
 
 @app.get("/api/groups/{gid}/transactions")
-def list_transactions(gid: str, username: str = Depends(current_user)):
-    member_group(gid, username)
+def list_transactions(gid: str, email: str = Depends(current_user)):
+    member_group(gid, email)
     return storage.read_transactions(gid)
 
 
@@ -327,16 +367,16 @@ def _build_transaction(group, body, tid=None):
 
 
 @app.post("/api/groups/{gid}/transactions")
-def add_transaction(gid: str, body: AddTransactionBody, username: str = Depends(current_user)):
-    group = member_group(gid, username)
+def add_transaction(gid: str, body: AddTransactionBody, email: str = Depends(current_user)):
+    group = member_group(gid, email)
     transaction = _build_transaction(group, body)
     storage.add_transaction(gid, transaction)
     return {"ok": True, "id": transaction["id"]}
 
 
 @app.put("/api/groups/{gid}/transactions/{tid}")
-def edit_transaction(gid: str, tid: str, body: AddTransactionBody, username: str = Depends(current_user)):
-    group = member_group(gid, username)
+def edit_transaction(gid: str, tid: str, body: AddTransactionBody, email: str = Depends(current_user)):
+    group = member_group(gid, email)
     txns = storage.read_transactions(gid)
     existing = next((t for t in txns if t["id"] == tid), None)
     if not existing:
@@ -349,8 +389,8 @@ def edit_transaction(gid: str, tid: str, body: AddTransactionBody, username: str
 
 
 @app.delete("/api/groups/{gid}/transactions/{tid}")
-def delete_transaction(gid: str, tid: str, username: str = Depends(current_user)):
-    member_group(gid, username)
+def delete_transaction(gid: str, tid: str, email: str = Depends(current_user)):
+    member_group(gid, email)
     txns = storage.read_transactions(gid)
     entry = next((t for t in txns if t["id"] == tid), None)
     if not entry or not storage.delete_transaction(gid, tid):
@@ -367,9 +407,9 @@ async def upload_receipt(
     gid: str,
     tid: str,
     file: UploadFile = File(...),
-    username: str = Depends(current_user),
+    email: str = Depends(current_user),
 ):
-    member_group(gid, username)
+    member_group(gid, email)
     if not gid.isalnum() or not tid.isalnum():
         raise HTTPException(status_code=400, detail="Invalid id")
     file_type = (file.content_type or "").lower()
@@ -397,8 +437,8 @@ async def upload_receipt(
 
 
 @app.get("/api/groups/{gid}/transactions/{tid}/receipt")
-def get_receipt(gid: str, tid: str, username: str = Depends(current_user)):
-    member_group(gid, username)
+def get_receipt(gid: str, tid: str, email: str = Depends(current_user)):
+    member_group(gid, email)
     if not gid.isalnum() or not tid.isalnum():
         raise HTTPException(status_code=400, detail="Invalid id")
     txns = storage.read_transactions(gid)
@@ -412,8 +452,8 @@ def get_receipt(gid: str, tid: str, username: str = Depends(current_user)):
 
 
 @app.delete("/api/groups/{gid}/transactions/{tid}/receipt")
-def delete_receipt(gid: str, tid: str, username: str = Depends(current_user)):
-    member_group(gid, username)
+def delete_receipt(gid: str, tid: str, email: str = Depends(current_user)):
+    member_group(gid, email)
     if not gid.isalnum() or not tid.isalnum():
         raise HTTPException(status_code=400, detail="Invalid id")
     txns = storage.read_transactions(gid)
@@ -428,8 +468,8 @@ def delete_receipt(gid: str, tid: str, username: str = Depends(current_user)):
 
 
 @app.get("/api/groups/{gid}/summary")
-def summary(gid: str, username: str = Depends(current_user)):
-    group = member_group(gid, username)
+def summary(gid: str, email: str = Depends(current_user)):
+    group = member_group(gid, email)
     transactions = [from_dict(t) for t in storage.read_transactions(gid)]
     manager = ExpenseManager(transactions)
     return {
@@ -443,8 +483,8 @@ def summary(gid: str, username: str = Depends(current_user)):
 
 
 @app.post("/api/groups/{gid}/tags")
-def add_tag(gid: str, body: AddTagBody, username: str = Depends(current_user)):
-    group = member_group(gid, username)
+def add_tag(gid: str, body: AddTagBody, email: str = Depends(current_user)):
+    group = member_group(gid, email)
     tag = body.tag.strip()
     if not tag:
         raise HTTPException(status_code=400, detail="Tag is required")
@@ -455,8 +495,8 @@ def add_tag(gid: str, body: AddTagBody, username: str = Depends(current_user)):
 
 
 @app.delete("/api/groups/{gid}/tags/{tag}")
-def remove_tag(gid: str, tag: str, username: str = Depends(current_user)):
-    group = member_group(gid, username)
+def remove_tag(gid: str, tag: str, email: str = Depends(current_user)):
+    group = member_group(gid, email)
     if tag in group["tags"]:
         group["tags"].remove(tag)
         storage.save_group(group)

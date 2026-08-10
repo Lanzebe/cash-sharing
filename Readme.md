@@ -6,15 +6,15 @@ Built from the old `main.py` logic — same split math and minimum-settlement al
 
 ## Features
 
-- Own accounts: self-registration on the login screen (password min 6 chars), login with username + password (JWT in an HTTP-only cookie)
-- Guest members: add anyone to a group by name — even if they have no account — and they can appear in splits and payments. If they register later under that name, they pick up those groups automatically
+- Own accounts: self-registration on the login screen (email + password, password min 6 chars, JWT in an HTTP-only cookie). A display name is set right after the first login
+- Guest members: add anyone to a group by name or email — even if they have no account — and they can appear in splits and payments. If the name you used matches the email of someone who later registers, they pick up those groups automatically
 - Multiple groups; every transaction belongs to a group
 - Create groups and add other users (or guests) as members
 - Per-group currency (default `ZAR`), set at creation and changeable by the group owner
 - Add transactions with a single payer and two split modes: by percentage, or by a fixed amount each person owes (total is the sum of those amounts). Edit any transaction after the fact
 - Attach a photo of a slip or tax invoice to any transaction (PNG/JPG/WebP/GIF, up to 15 MB), viewable from the transactions table
 - Auto-calculated balances, minimum settlements, and spending-by-tag
-- Dark mode by default, with a light/dark switch in the corner that remembers your choice
+- Dark mode by default, with a light/dark switch in the top banner that remembers your choice
 - Per-group storage as a `.csv` file
 
 ## Tech stack
@@ -57,13 +57,45 @@ docker compose up --build
 
 Open http://localhost:8081
 
+## Admin: data access, audit, and user management
+
+There is no admin web UI. Everything lives in plain files under the data directory (`users.json`, `groups.json`, `groups/<id>.csv`, `receipts/<group>/`), and `backend/manage.py` is a small CLI for everyday tasks.
+
+Run it locally:
+
+```bash
+cd backend
+python manage.py list-users
+python manage.py list-groups
+python manage.py show-group <gid>
+python manage.py create-user <email> <password>
+python manage.py reset-password <email> <new-password>
+python manage.py delete-user <email>            # members stay in groups as guests
+python manage.py delete-group <gid>
+```
+
+Or inside the container (data lives in your mounted `/data`):
+
+```bash
+docker compose exec cashsharing python backend/manage.py list-users
+```
+
+For a full audit you can also read the files directly (they are human-readable JSON/CSV):
+
+```bash
+cat database/users.json                 # accounts: email, display_name, password_hash
+cat database/groups.json                # groups: id, name, owner, members, currency, tags
+cat "database/groups/<gid>.csv"         # all transactions of a group
+ls -R database/receipts                 # uploaded receipt images, one file per transaction
+```
+
 ## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CASH_SHARING_DATA` | `../database` | Where data is stored |
 | `CASH_SHARING_SECRET` | `change-me-in-production` | JWT signing secret — always change it |
-| `CASH_SHARING_ADMIN_USER` | `admin` | First user created when the DB is empty |
+| `CASH_SHARING_ADMIN_EMAIL` | `admin@example.com` | First user created when the DB is empty |
 | `CASH_SHARING_ADMIN_PASSWORD` | `admin123` | Password for that first user |
 | `CASH_SHARING_COOKIE_SECURE` | `0` | Set to `1` once you serve over HTTPS |
 | `CASH_SHARING_TTL_HOURS` | `168` | How long a login lasts (hours) |
@@ -94,18 +126,18 @@ The action needs the repo's write permission (already set in the workflow) and t
 2. Container image: `ghcr.io/lanzebe/cash-sharing`, tag `latest`, pull policy `Always`.
 3. Host port **8888** → container port **8081** (or any host port you like).
 4. Mount your ZFS dataset (e.g. `/mnt/tank/configs/CashSharing`) to `/data` — this is where all data lives and persists.
-5. Set the environment variables (a strong `CASH_SHARING_SECRET`, and your own `CASH_SHARING_ADMIN_USER/PASSWORD`):
+5. Set the environment variables (a strong `CASH_SHARING_SECRET`, and your own `CASH_SHARING_ADMIN_EMAIL/PASSWORD`):
 
    | Variable | Value |
    |----------|-------|
    | `CASH_SHARING_DATA` | `/data` |
    | `CASH_SHARING_SECRET` | a long random string (`openssl rand -hex 32`) |
-   | `CASH_SHARING_ADMIN_USER` | `admin` |
+   | `CASH_SHARING_ADMIN_EMAIL` | `admin@example.com` |
    | `CASH_SHARING_ADMIN_PASSWORD` | a strong password |
 
 ### 4. First login
 
-Open `http://your-server-ip:8888`. Either create your own account (right-hand tab) or use the admin user from the environment variables. Create a group (pick its currency), add members — registered users or guests — add transactions, and settle up. Guests show up with a "(guest)" label until they register under the same name.
+Open `http://your-server-ip:8888`. Either create your own account (right-hand tab) or use the admin account from the environment variables. After the first login you will be asked to set a display name. Create a group (pick its currency), add members — registered users or guests — add transactions, and settle up. Guests show up with a "(guest)" label until they register under a matching email.
 
 ## Notes
 

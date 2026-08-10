@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import shutil
 import threading
 import uuid
 
@@ -65,7 +66,7 @@ def get_user(username):
 def save_user(user):
     with _lock:
         users = list_users()
-        users[user["username"]] = user
+        users[user["email"]] = user
         _save(USERS_FILE, users)
 
 
@@ -111,6 +112,12 @@ def delete_group(gid):
     with _lock:
         groups = [g for g in list_groups() if g["id"] != gid]
         _save(GROUPS_FILE, groups)
+    csv_path = _group_csv(gid)
+    if os.path.exists(csv_path):
+        os.remove(csv_path)
+    receipt_dir = os.path.join(RECEIPTS_DIR, gid)
+    if os.path.isdir(receipt_dir):
+        shutil.rmtree(receipt_dir, ignore_errors=True)
 
 
 def _group_csv(gid):

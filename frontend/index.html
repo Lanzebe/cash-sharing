@@ -15,26 +15,32 @@
 <body data-page="index">
 <div class="container">
 
-  <header class="hero">
+  <header class="banner">
+    <a href="/" class="brand">CashSharing</a>
+    <span class="banner-spacer"></span>
+    <span id="me-label" class="me-label" hidden></span>
     <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme"></button>
-    <h1>CashSharing</h1>
-    <p>Split expenses with friends and settle up.</p>
+    <button id="logout-btn" class="link" hidden>Log out</button>
   </header>
 
   <section id="login-view" hidden>
+    <div class="hero">
+      <h1>CashSharing</h1>
+      <p>Split expenses with friends and settle up.</p>
+    </div>
     <div class="card narrow">
       <div class="auth-tabs">
         <button type="button" id="show-login" class="tab active">Log in</button>
         <button type="button" id="show-register" class="tab">Create account</button>
       </div>
       <form id="login-form" hidden>
-        <input name="username" placeholder="Username" autocomplete="username" required>
+        <input name="email" type="email" placeholder="Email" autocomplete="email" required>
         <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
         <p class="error" id="login-error"></p>
         <button type="submit">Log in</button>
       </form>
       <form id="register-form" hidden>
-        <input name="username" placeholder="Username" autocomplete="username" required>
+        <input name="email" type="email" placeholder="Email" autocomplete="email" required>
         <input name="password" type="password" placeholder="Password (min 6 characters)" autocomplete="new-password" required>
         <p class="error" id="register-error"></p>
         <button type="submit">Create account</button>
@@ -43,13 +49,21 @@
   </section>
 
   <section id="app-view" hidden>
-    <header class="topbar">
-      <h2>Your groups</h2>
-      <button id="logout-btn" class="link">Log out</button>
-    </header>
+    <div id="name-prompt" class="card narrow" hidden>
+      <h2>What should we call you?</h2>
+      <form id="name-form" class="row">
+        <input name="name" placeholder="Your name" maxlength="64" required>
+        <button type="submit">Save</button>
+      </form>
+      <p class="error" id="name-error"></p>
+    </div>
 
-    <form id="new-group-form" class="card narrow">
-      <h2>New group</h2>
+    <div id="totals-bar" class="totals" hidden></div>
+
+    <ul id="group-list" class="group-list"></ul>
+
+    <button id="add-group-btn" class="add-group" type="button">+ Add group</button>
+    <form id="new-group-form" class="card narrow" hidden>
       <div class="row">
         <input name="name" placeholder="Group name" required>
         <select name="currency" id="currency-select" title="Currency">
@@ -66,8 +80,6 @@
         <button type="submit">Create</button>
       </div>
     </form>
-
-    <ul id="group-list" class="group-list"></ul>
   </section>
 </div>
 <script src="/app.js"></script>

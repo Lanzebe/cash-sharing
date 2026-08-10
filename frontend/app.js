@@ -75,6 +75,10 @@ async function initIndex() {
   } else {
     $("#login-view").hidden = false;
     $("#login-form").hidden = false;
+    const meLabel = $("#me-label");
+    if (meLabel) meLabel.hidden = true;
+    const prompt = $("#name-prompt");
+    if (prompt) prompt.hidden = true;
   }
 
   const showTab = (which) => {
@@ -94,7 +98,7 @@ async function initIndex() {
     try {
       await api("/login", {
         method: "POST",
-        body: { username: f.username.value, password: f.password.value },
+        body: { email: f.email.value, password: f.password.value },
       });
       window.location.reload();
     } catch (err) {
@@ -110,7 +114,7 @@ async function initIndex() {
     try {
       await api("/register", {
         method: "POST",
-        body: { username: f.username.value, password: f.password.value },
+        body: { email: f.email.value, password: f.password.value },
       });
       window.location.reload();
     } catch (err) {
@@ -121,6 +125,16 @@ async function initIndex() {
   $("#logout-btn").addEventListener("click", async () => {
     try { await api("/logout", { method: "POST" }); } catch (err) {}
     window.location.reload();
+  });
+
+  const addGroupBtn = $("#add-group-btn");
+  addGroupBtn.addEventListener("click", () => {
+    const form = $("#new-group-form");
+    form.hidden = !form.hidden;
+    if (!form.hidden) {
+      form.scrollIntoView({ behavior: "smooth", block: "center" });
+      form.elements.name.focus();
+    }
   });
 
   $("#new-group-form").addEventListener("submit", async (e) => {
@@ -136,25 +150,128 @@ async function initIndex() {
       alert(err.message);
     }
   });
+
+  const nameForm = $("#name-form");
+  if (nameForm) {
+    nameForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errEl = $("#name-error");
+      errEl.textContent = "";
+      try {
+        const res = await api("/me", {
+          method: "PUT",
+          body: { display_name: nameForm.elements.name.value },
+        });
+        const meLabel = $("#me-label");
+        if (meLabel) meLabel.textContent = res.display_name;
+        $("#name-prompt").hidden = true;
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
+    });
+  }
+}
+
+function renderTotals(groups) {
+  const bar = $("#totals-bar");
+  bar.innerHTML = "";
+  const totals = {};
+  for (const g of groups) {
+    totals[g.currency] = (totals[g.currency] || 0) + g.balance;
+  }
+  const keys = Object.keys(totals);
+  bar.hidden = keys.length === 0;
+  if (!keys.length) return;
+  const label = document.createElement("span");
+  label.className = "totals-label";
+  label.textContent = "Net";
+  bar.appendChild(label);
+  for (const cur of keys.sort()) {
+    const v = totals[cur];
+    const cls = v > 0 ? "pos" : v < 0 ? "neg" : "zero";
+    const span = document.createElement("span");
+    span.className = `tot ${cls}`;
+    span.textContent = `${cur} ${v > 0 ? "+" : ""}${v.toFixed(2)}`;
+    span.title = v > 0 ? "You are owed" : v < 0 ? "You owe" : "Settled up";
+    bar.appendChild(span);
+  }
 }
 
 function showApp(me) {
+  window.ME = me;
   $("#login-view").hidden = true;
+  $("#logout-btn").hidden = false;
+  const meLabel = $("#me-label");
+  if (meLabel) {
+    meLabel.textContent = me.display_name || me.email;
+    meLabel.hidden = false;
+  }
+  const needsName = !me.display_name || me.display_name === me.email;
+  const prompt = $("#name-prompt");
+  if (prompt) prompt.hidden = !needsName;
   const appView = $("#app-view");
   appView.hidden = false;
   const list = $("#group-list");
   list.innerHTML = "";
   if (!me.groups.length) {
-    list.innerHTML = '<li class="muted">No groups yet — create one above.</li>';
-    return;
+    list.innerHTML = '<li class="muted empty-note">No groups yet — add one below.</li>';
   }
-  for (const g of me.groups) {
+  renderTotals(me.groups);
+  const uid = me.email;
+  me.groups.forEach((g) => {
     const li = document.createElement("li");
-    const a = document.createElement("a");
-    a.href = `/group.html?id=${encodeURIComponent(g.id)}`;
-    a.textContent = g.name;
-    li.appendChild(a);
+    li.className = "group-card";
+    const body = document.createElement("div");
+    body.className = "group-body";
+
+    const link = document.createElement("a");
+    link.className = "group-main";
+    link.href = `/group.html?id=${encodeURIComponent(g.id)}`;
+    const name = document.createElement("span");
+    name.className = "group-name";
+    name.textContent = g.name;
+    const meta = document.createElement("span");
+    meta.className = "group-meta";
+    meta.textContent = `${g.currency} · ${g.members.length} member${g.members.length === 1 ? "" : "s"}`;
+    link.appendChild(name);
+    link.appendChild(meta);
+    body.appendChild(link);
+
+    const bal = document.createElement("span");
+    bal.className = "group-balance";
+    const cls = g.balance > 0 ? "pos" : g.balance < 0 ? "neg" : "zero";
+    bal.classList.add(cls);
+    const sign = g.balance > 0 ? "+" : g.balance < 0 ? "−" : "";
+    bal.textContent = `${sign}${g.currency} ${Math.abs(g.balance).toFixed(2)}`;
+    bal.title = g.balance > 0 ? "You are owed" : g.balance < 0 ? "You owe" : "Settled up";
+    body.appendChild(bal);
+
+    li.appendChild(body);
+
+    if (g.owner === uid) {
+      const del = document.createElement("button");
+      del.className = "danger group-del";
+      del.type = "button";
+      del.textContent = "Delete";
+      del.addEventListener("click", () => onDeleteGroup(g.id));
+      li.appendChild(del);
+    }
+
     list.appendChild(li);
+  });
+}
+
+async function onDeleteGroup(gid) {
+  if (!confirm("Delete this group and all its transactions? This cannot be undone.")) return;
+  try {
+    await api(`/api/groups/${encodeURIComponent(gid)}`, { method: "DELETE" });
+    if (window.GID === gid) {
+      window.location.href = "/";
+    } else {
+      window.location.reload();
+    }
+  } catch (err) {
+    alert(err.message);
   }
 }
 
@@ -186,6 +303,16 @@ async function initGroup() {
   $("#add-member-form").addEventListener("submit", onAddMember);
   $("#new-tag-form").addEventListener("submit", onAddTag);
   $("#currency-form").addEventListener("submit", onChangeCurrency);
+
+  $("#delete-group-btn").addEventListener("click", async () => {
+    if (!confirm("Delete this group and all its transactions? This cannot be undone.")) return;
+    try {
+      await api(`/api/groups/${encodeURIComponent(window.GID)}`, { method: "DELETE" });
+      location.href = "/";
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   window.SPLIT_MODE = "percent";
   window.EDITING_TID = null;
@@ -224,8 +351,14 @@ async function loadGroup() {
   window.MEMBERS = group.members;
   window.CURRENCY = group.currency;
   window.REGISTERED = new Set(group.registered_members || []);
-  const me = (await api("/me")).username;
-  window.IS_OWNER = group.owner === me;
+  const meData = await api("/me");
+  const meEmail = meData.email;
+  window.IS_OWNER = group.owner === meEmail;
+
+  const meLabel = $("#me-label");
+  if (meLabel) meLabel.textContent = meData.display_name || meEmail;
+  const danger = $("#danger-section");
+  if (danger) danger.hidden = !window.IS_OWNER;
 
   document.title = `${group.name} — CashSharing`;
   $("#group-name").textContent = group.name;
@@ -458,7 +591,7 @@ async function onAddMember(e) {
   try {
     await api(`/api/groups/${encodeURIComponent(window.GID)}/members`, {
       method: "POST",
-      body: { username: f.username.value },
+      body: { member: f.member.value },
     });
     f.reset();
     await loadGroup();
