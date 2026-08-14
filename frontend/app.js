@@ -217,7 +217,6 @@ function showApp(me) {
     list.innerHTML = '<li class="muted empty-note">No groups yet — add one below.</li>';
   }
   renderTotals(me.groups);
-  const uid = me.email;
   me.groups.forEach((g) => {
     const li = document.createElement("li");
     li.className = "group-card";
@@ -248,31 +247,8 @@ function showApp(me) {
 
     li.appendChild(body);
 
-    if (g.owner === uid) {
-      const del = document.createElement("button");
-      del.className = "danger group-del";
-      del.type = "button";
-      del.textContent = "Delete";
-      del.addEventListener("click", () => onDeleteGroup(g.id));
-      li.appendChild(del);
-    }
-
     list.appendChild(li);
   });
-}
-
-async function onDeleteGroup(gid) {
-  if (!confirm("Delete this group and all its transactions? This cannot be undone.")) return;
-  try {
-    await api(`/api/groups/${encodeURIComponent(gid)}`, { method: "DELETE" });
-    if (window.GID === gid) {
-      window.location.href = "/";
-    } else {
-      window.location.reload();
-    }
-  } catch (err) {
-    alert(err.message);
-  }
 }
 
 async function initGroup() {
@@ -301,6 +277,7 @@ async function initGroup() {
   $("#new-txn-form").addEventListener("submit", onAddTransaction);
   $("#new-txn-form").addEventListener("input", recomputeSplit);
   $("#add-member-form").addEventListener("submit", onAddMember);
+  $("#remove-member-form").addEventListener("submit", onRemoveMember);
   $("#new-tag-form").addEventListener("submit", onAddTag);
   $("#currency-form").addEventListener("submit", onChangeCurrency);
 
@@ -353,6 +330,7 @@ async function loadGroup() {
   window.CURRENCY = group.currency;
   window.REGISTERED = new Set(group.registered_members || []);
   window.DISPLAY_NAMES = group.display_names || {};
+  window.GROUP_OWNER = group.owner;
   const meData = await api("/me");
   const meEmail = meData.email;
   window.IS_OWNER = group.owner === meEmail;
@@ -368,6 +346,7 @@ async function loadGroup() {
   fillPaidBy(group.members);
   renderTags(group.tags);
   renderMembers(group.members);
+  renderRemoveMemberSelect(group.members);
   buildSplitInputs(group.members);
   populateCurrencySelect();
   $("#currency-section").hidden = !window.IS_OWNER;
@@ -602,6 +581,22 @@ async function onAddMember(e) {
   }
 }
 
+async function onRemoveMember(e) {
+  e.preventDefault();
+  const f = e.target;
+  const member = f.member.value;
+  if (!member) return;
+  if (!confirm(`Remove ${memberLabel(member)} from this group?`)) return;
+  try {
+    await api(`/api/groups/${encodeURIComponent(window.GID)}/members/${encodeURIComponent(member)}`, {
+      method: "DELETE",
+    });
+    await loadGroup();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function onAddTag(e) {
   e.preventDefault();
   const f = e.target;
@@ -723,6 +718,20 @@ function renderMembers(members) {
       li.dataset.guest = "true";
     }
     list.appendChild(li);
+  }
+}
+
+function renderRemoveMemberSelect(members) {
+  const sel = $("#remove-member-select");
+  if (!sel) return;
+  sel.innerHTML = "";
+  const owner = window.GROUP_OWNER;
+  for (const m of members) {
+    if (m === owner) continue;
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = memberLabel(m);
+    sel.appendChild(opt);
   }
 }
 

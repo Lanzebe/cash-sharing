@@ -1,8 +1,14 @@
-1. Delete group functionality required.
-2. The groups should be the main page listing. Each group should also show a summary of how much is owed or borrowd to/by the user. If the User is owed money by the other users the totas should be listed in green. Otherwize red. The total of all the groups should also be shown in red/green in the top banner for the specific user.
-3. There should be a add group button below the last group. not at the top
-4. The light/dark mode button is a neusance. It goes over the other UI elements. Incorporate it to a banner at the top.
-5. The main page should have some thought put into the layout.
-6. The login page should utilize, email, password. no emails to be sent yet. User name should be a seperate thing and set just after login.
-7. I also want to know how the admin can reach the data for audit and user management. If this is through the shell that is ok. I just need the commands.
-8. No backwards compatibility is required at the moment. If there are things that are not optimal, then redo them.
+1. Problem:
+Traceback (most recent call last):
+  File "/app/backend/manage.py", line 179, in <module>
+    main()
+  File "/app/backend/manage.py", line 175, in main
+    handlers[args.command](args)
+  File "/app/backend/manage.py", line 57, in cmd_list_groups
+    f"currency={g['currency']}  owner={g['owner']}  "
+                ~^^^^^^^^^^^^
+KeyError: 'currency'
+2. There should only be one way to delete a group and that should be inside the group danger zone, The one on the main page should be removed
+3. When adding a user to a group by username, it should detect if a username(not email) already exist. Only if the username does not exist, it should add the member as a guest.
+4. Under the dangerzone, it should be possible to remove a member. The member may only be removed if it does not partake in any transactions of the group.
+5. The input fields for percentage and amount (both transactions types) are too small on some screens. Either use a min field width, or use 2 lines for transactions, or both.

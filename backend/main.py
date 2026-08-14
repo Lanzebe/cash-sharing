@@ -276,14 +276,35 @@ def set_currency(gid: str, body: SetCurrencyBody, email: str = Depends(current_u
 @app.post("/api/groups/{gid}/members")
 def add_member(gid: str, body: AddMemberBody, email: str = Depends(current_user)):
     group = owner_group(gid, email)
-    new_member = body.member.strip().lower()
-    if not new_member:
+    raw = body.member.strip()
+    if not raw:
         raise HTTPException(status_code=400, detail="Member name is required")
+    needle = raw.lower()
+
+    users = storage.list_users()
+    key_matches = [key for key in users if key.strip().lower() == needle]
+    display_matches = [
+        key for key, u in users.items()
+        if (u.get("display_name") or "").strip().lower() == needle
+    ]
+
+    if key_matches:
+        new_member = key_matches[0]
+    elif len(display_matches) == 1:
+        new_member = display_matches[0]
+    elif len(display_matches) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Multiple accounts use the username '{raw}' — add them by email instead",
+        )
+    else:
+        new_member = needle
+
     if new_member in group["members"]:
         raise HTTPException(status_code=400, detail="Already a member")
     group["members"].append(new_member)
     storage.save_group(group)
-    return {"members": group["members"]}
+    return {"members": group["members"], "member": new_member}
 
 
 @app.delete("/api/groups/{gid}/members/{member}")
@@ -293,6 +314,15 @@ def remove_member(gid: str, member: str, email: str = Depends(current_user)):
         raise HTTPException(status_code=400, detail="Cannot remove the owner")
     if member not in group["members"]:
         raise HTTPException(status_code=404, detail="Not a member")
+    txns = storage.read_transactions(gid)
+    if any(
+        member in t["paid_by"] or member in t["split_percent"] or member in t["split_amounts"]
+        for t in txns
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot remove '{member}': they take part in transactions of this group",
+        )
     group["members"].remove(member)
     storage.save_group(group)
     return {"members": group["members"]}

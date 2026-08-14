@@ -53,9 +53,9 @@ def cmd_list_groups(args):
         return
     for g in groups:
         print(
-            f"{g['id']}  {g['name']}  "
-            f"currency={g['currency']}  owner={g['owner']}  "
-            f"members={len(g['members'])}"
+            f"{g.get('id')}  {g.get('name')}  "
+            f"currency={g.get('currency', 'ZAR')}  owner={g.get('owner', '')}  "
+            f"members={len(g.get('members', []))}"
         )
 
 
@@ -90,7 +90,7 @@ def cmd_delete_user(args):
     if not key:
         sys.exit(f"No such user: {args.email}")
     groups_with_member = [
-        g for g in storage.list_groups() if key in g["members"]
+        g for g in storage.list_groups() if key in g.get("members", [])
     ]
     with storage._lock:
         users = storage.list_users()

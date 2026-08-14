@@ -117,6 +117,12 @@
 
   <section id="danger-section" class="danger-zone" hidden>
     <h2>Danger zone</h2>
+    <h3>Remove member</h3>
+    <p class="muted">A member can only be removed if they take part in no transactions of this group.</p>
+    <form id="remove-member-form" class="row">
+      <select name="member" id="remove-member-select"></select>
+      <button type="submit" class="danger">Remove member</button>
+    </form>
     <p class="muted">Deleting a group removes all its transactions and receipts. This cannot be undone.</p>
     <button id="delete-group-btn" class="danger" type="button">Delete group</button>
   </section>
