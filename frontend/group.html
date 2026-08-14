@@ -105,28 +105,6 @@
     </form>
   </section>
 
-  <section id="currency-section" hidden>
-    <h2>Currency</h2>
-    <form id="currency-form" class="card narrow">
-      <div class="row">
-        <select name="currency" id="group-currency-select"></select>
-        <button type="submit">Change currency</button>
-      </div>
-    </form>
-  </section>
-
-  <section id="danger-section" class="danger-zone" hidden>
-    <h2>Danger zone</h2>
-    <h3>Remove member</h3>
-    <p class="muted">A member can only be removed if they take part in no transactions of this group.</p>
-    <form id="remove-member-form" class="row">
-      <select name="member" id="remove-member-select"></select>
-      <button type="submit" class="danger">Remove member</button>
-    </form>
-    <p class="muted">Deleting a group removes all its transactions and receipts. This cannot be undone.</p>
-    <button id="delete-group-btn" class="danger" type="button">Delete group</button>
-  </section>
-
   <section>
     <h2>Tags</h2>
     <div id="tag-list" class="chips"></div>
@@ -136,6 +114,26 @@
         <button type="submit">Add tag</button>
       </div>
     </form>
+  </section>
+
+  <section id="danger-section" class="danger-zone" hidden>
+    <h2>Danger zone</h2>
+
+    <h3>Change currency</h3>
+    <form id="currency-form" class="row">
+      <select name="currency" id="group-currency-select"></select>
+      <button type="submit">Change currency</button>
+    </form>
+
+    <h3>Remove member</h3>
+    <p class="muted">A member can only be removed if they take part in no transactions of this group.</p>
+    <form id="remove-member-form" class="row">
+      <select name="member" id="remove-member-select"></select>
+      <button type="submit" class="danger">Remove member</button>
+    </form>
+
+    <p class="muted">Deleting a group removes all its transactions and receipts. This cannot be undone.</p>
+    <button id="delete-group-btn" class="danger" type="button" hidden>Delete group</button>
   </section>
 
 </div>

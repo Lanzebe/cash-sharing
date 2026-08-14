@@ -1,14 +1,4 @@
-1. Problem:
-Traceback (most recent call last):
-  File "/app/backend/manage.py", line 179, in <module>
-    main()
-  File "/app/backend/manage.py", line 175, in main
-    handlers[args.command](args)
-  File "/app/backend/manage.py", line 57, in cmd_list_groups
-    f"currency={g['currency']}  owner={g['owner']}  "
-                ~^^^^^^^^^^^^
-KeyError: 'currency'
-2. There should only be one way to delete a group and that should be inside the group danger zone, The one on the main page should be removed
-3. When adding a user to a group by username, it should detect if a username(not email) already exist. Only if the username does not exist, it should add the member as a guest.
-4. Under the dangerzone, it should be possible to remove a member. The member may only be removed if it does not partake in any transactions of the group.
-5. The input fields for percentage and amount (both transactions types) are too small on some screens. Either use a min field width, or use 2 lines for transactions, or both.
+1. Members that did not contribute to transaction and that must be deleted, can't be deleted bacause they register as having 0 contribution. But that means they can be deleted, This is not possible currently. When creating a transaction, members need to be explicidy added to each transaction, and if the contribution is 0, they should be removed from the transaction.
+2. User that was previously added to group
+3. If not a Administrator of a group, then dangerzone should not be available. Change curency should be dangerzone. Put dangerzone at the very bottom.
+4. Add ability to set user as administrator on groups. only administrator can do this.

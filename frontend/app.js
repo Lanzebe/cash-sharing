@@ -331,14 +331,18 @@ async function loadGroup() {
   window.REGISTERED = new Set(group.registered_members || []);
   window.DISPLAY_NAMES = group.display_names || {};
   window.GROUP_OWNER = group.owner;
+  window.ADMINS = new Set(group.admins || [group.owner]);
   const meData = await api("/me");
   const meEmail = meData.email;
   window.IS_OWNER = group.owner === meEmail;
+  window.IS_ADMIN = window.IS_OWNER || window.ADMINS.has(meEmail);
 
   const meLabel = $("#me-label");
   if (meLabel) meLabel.textContent = meData.display_name || meEmail;
   const danger = $("#danger-section");
-  if (danger) danger.hidden = !window.IS_OWNER;
+  if (danger) danger.hidden = !window.IS_ADMIN;
+  const delBtn = $("#delete-group-btn");
+  if (delBtn) delBtn.hidden = !window.IS_OWNER;
 
   document.title = `${group.name} — CashSharing`;
   $("#group-name").textContent = group.name;
@@ -349,7 +353,6 @@ async function loadGroup() {
   renderRemoveMemberSelect(group.members);
   buildSplitInputs(group.members);
   populateCurrencySelect();
-  $("#currency-section").hidden = !window.IS_OWNER;
   await loadSummary();
 }
 
@@ -392,14 +395,21 @@ function defaultSplitValues(members) {
   return values;
 }
 
-function buildSplitInputs(members, prefill) {
+function buildSplitInputs(members, prefill, included) {
   const row = $("#split-row");
   row.innerHTML = "";
   const values = prefill || defaultSplitValues(members);
+  const includedSet = included || new Set(members);
   const unitText = window.SPLIT_MODE === "amount" ? window.CURRENCY : "%";
   for (const m of members) {
     const item = document.createElement("div");
     item.className = "split-item";
+    const include = document.createElement("input");
+    include.type = "checkbox";
+    include.className = "split-include";
+    include.checked = includedSet.has(m);
+    include.dataset.include = m;
+    include.title = "Include in this transaction";
     const name = document.createElement("span");
     name.className = "split-name";
     name.textContent = memberLabel(m);
@@ -416,13 +426,26 @@ function buildSplitInputs(members, prefill) {
     const out = document.createElement("span");
     out.className = "split-out";
     out.dataset.amount = m;
+    item.appendChild(include);
     item.appendChild(name);
     item.appendChild(unit);
     item.appendChild(input);
     item.appendChild(out);
     row.appendChild(item);
   }
+  row.addEventListener("change", (ev) => {
+    if (ev.target.classList && ev.target.classList.contains("split-include")) {
+      recomputeSplit();
+    }
+  });
   recomputeSplit();
+}
+
+function activeSplitMembers() {
+  return window.MEMBERS.filter((m) => {
+    const box = document.querySelector(`[data-include="${m}"]`);
+    return !box || box.checked;
+  });
 }
 
 function setSplitMode(mode) {
@@ -443,27 +466,32 @@ function setSplitMode(mode) {
 function recomputeSplit() {
   const f = $("#new-txn-form");
   const totalEl = f.elements.total_amount;
+  const active = activeSplitMembers();
   if (window.SPLIT_MODE === "amount") {
     let total = 0;
     const vals = {};
-    for (const m of window.MEMBERS) {
+    for (const m of active) {
       const amt = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
       vals[m] = amt;
       total += amt;
     }
     totalEl.value = total > 0 ? total.toFixed(2) : "";
     for (const m of window.MEMBERS) {
+      const inTxn = vals[m] != null;
       document.querySelector(`[data-amount="${m}"]`).textContent =
-        total > 0 ? `${((vals[m] / total) * 100).toFixed(2)}%` : "";
+        inTxn && total > 0 ? `${((vals[m] / total) * 100).toFixed(2)}%` : "—";
     }
     $("#split-total").textContent = total > 0 ? `Total ${fmt(total)}` : "";
     return;
   }
   const total = parseFloat(totalEl.value) || 0;
   let sum = 0;
-  for (const m of window.MEMBERS) {
+  for (const m of active) {
     const pct = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
     sum += pct;
+  }
+  for (const m of window.MEMBERS) {
+    const pct = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
     document.querySelector(`[data-amount="${m}"]`).textContent = fmt((total * pct) / 100);
   }
   const totalEl2 = $("#split-total");
@@ -475,15 +503,21 @@ async function onAddTransaction(e) {
   e.preventDefault();
   const f = e.target;
   const split = {};
-  for (const m of window.MEMBERS) {
-    split[m] = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
+  for (const m of activeSplitMembers()) {
+    const v = parseFloat(document.querySelector(`[data-pct="${m}"]`).value) || 0;
+    if (v > 0) split[m] = v;
   }
   if (window.SPLIT_MODE === "percent") {
-    const sum = window.MEMBERS.reduce((acc, m) => acc + (split[m] || 0), 0);
+    if (!Object.keys(split).length) {
+      alert("Include at least one member with a non-zero share");
+      return;
+    }
+    const sum = Object.values(split).reduce((a, b) => a + b, 0);
     if (Math.round(sum * 100) !== 10000) {
-      const last = window.MEMBERS[window.MEMBERS.length - 1];
-      const adjusted = 100 - (sum - (split[last] || 0));
-      if (adjusted < 0) {
+      const keys = Object.keys(split);
+      const last = keys[keys.length - 1];
+      const adjusted = 100 - (sum - split[last]);
+      if (adjusted <= 0) {
         alert("Split percentages exceed 100%");
         return;
       }
@@ -532,11 +566,14 @@ function loadTransactionIntoForm(t) {
     f.paid_by.value = payer;
   }
   $("#receipt-input").value = "";
+  const splitMap = t.split_mode === "amount" ? t.split_amounts : t.split_percent;
   const values = {};
+  const included = new Set();
   for (const m of window.MEMBERS) {
-    values[m] = ((t.split_mode === "amount" ? t.split_amounts : t.split_percent) || {})[m] ?? 0;
+    values[m] = splitMap[m] ?? 0;
+    if (m in splitMap) included.add(m);
   }
-  buildSplitInputs(window.MEMBERS, values);
+  buildSplitInputs(window.MEMBERS, values, included);
   $("#txn-section-title").textContent = "Edit transaction";
   $("#txn-submit").textContent = "Save changes";
   $("#edit-cancel").hidden = false;
@@ -717,7 +754,32 @@ function renderMembers(members) {
     if (!window.REGISTERED.has(m)) {
       li.dataset.guest = "true";
     }
+    const isAdmin = m === window.GROUP_OWNER || window.ADMINS.has(m);
+    if (isAdmin) {
+      const badge = document.createElement("span");
+      badge.className = "member-admin";
+      badge.textContent = m === window.GROUP_OWNER ? "owner" : "admin";
+      li.appendChild(badge);
+    }
+    if (window.IS_ADMIN && m !== window.GROUP_OWNER) {
+      const btn = document.createElement("button");
+      btn.className = "chip-x admin-toggle";
+      btn.type = "button";
+      btn.textContent = isAdmin ? "revoke admin" : "make admin";
+      btn.addEventListener("click", () => onToggleAdmin(m, isAdmin));
+      li.appendChild(btn);
+    }
     list.appendChild(li);
+  }
+}
+
+async function onToggleAdmin(member, isAdmin) {
+  const url = `/api/groups/${encodeURIComponent(window.GID)}/members/${encodeURIComponent(member)}/admin`;
+  try {
+    await api(url, { method: isAdmin ? "DELETE" : "PUT" });
+    await loadGroup();
+  } catch (err) {
+    alert(err.message);
   }
 }
 

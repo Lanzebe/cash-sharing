@@ -119,6 +119,23 @@ def owner_group(gid: str, email: str):
     return group
 
 
+def group_admins(group):
+    if "admins" not in group:
+        group["admins"] = [group["owner"]]
+    return group["admins"]
+
+
+def is_admin(group, email: str) -> bool:
+    return email == group["owner"] or email in group_admins(group)
+
+
+def admin_group(gid: str, email: str):
+    group = member_group(gid, email)
+    if not is_admin(group, email):
+        raise HTTPException(status_code=403, detail="Only group administrators can do that")
+    return group
+
+
 def group_balance(group, email: str) -> float:
     transactions = [from_dict(t) for t in storage.read_transactions(group["id"])]
     manager = ExpenseManager(transactions)
@@ -238,6 +255,7 @@ def create_group(body: CreateGroupBody, email: str = Depends(current_user)):
         "name": group["name"],
         "owner": group["owner"],
         "members": group["members"],
+        "admins": group["admins"],
         "currency": group["currency"],
     }
 
@@ -251,6 +269,7 @@ def get_group(gid: str, email: str = Depends(current_user)):
         "name": group["name"],
         "owner": group["owner"],
         "members": group["members"],
+        "admins": group_admins(group),
         "currency": group["currency"],
         "registered_members": [m for m in group["members"] if m in registered],
         "display_names": {
@@ -264,7 +283,7 @@ def get_group(gid: str, email: str = Depends(current_user)):
 
 @app.put("/api/groups/{gid}/currency")
 def set_currency(gid: str, body: SetCurrencyBody, email: str = Depends(current_user)):
-    group = owner_group(gid, email)
+    group = admin_group(gid, email)
     currency = body.currency.strip().upper()
     if not currency or len(currency) != 3 or not currency.isalpha():
         raise HTTPException(status_code=400, detail="Currency must be a 3-letter code")
@@ -275,7 +294,7 @@ def set_currency(gid: str, body: SetCurrencyBody, email: str = Depends(current_u
 
 @app.post("/api/groups/{gid}/members")
 def add_member(gid: str, body: AddMemberBody, email: str = Depends(current_user)):
-    group = owner_group(gid, email)
+    group = admin_group(gid, email)
     raw = body.member.strip()
     if not raw:
         raise HTTPException(status_code=400, detail="Member name is required")
@@ -309,14 +328,15 @@ def add_member(gid: str, body: AddMemberBody, email: str = Depends(current_user)
 
 @app.delete("/api/groups/{gid}/members/{member}")
 def remove_member(gid: str, member: str, email: str = Depends(current_user)):
-    group = owner_group(gid, email)
+    group = admin_group(gid, email)
     if member == group["owner"]:
         raise HTTPException(status_code=400, detail="Cannot remove the owner")
     if member not in group["members"]:
         raise HTTPException(status_code=404, detail="Not a member")
     txns = storage.read_transactions(gid)
     if any(
-        member in t["paid_by"] or member in t["split_percent"] or member in t["split_amounts"]
+        t["split_amounts"].get(member, 0) > 0
+        or t["paid_by"].get(member, 0) > 0
         for t in txns
     ):
         raise HTTPException(
@@ -324,8 +344,36 @@ def remove_member(gid: str, member: str, email: str = Depends(current_user)):
             detail=f"Cannot remove '{member}': they take part in transactions of this group",
         )
     group["members"].remove(member)
+    if member in group_admins(group):
+        group["admins"].remove(member)
     storage.save_group(group)
     return {"members": group["members"]}
+
+
+@app.put("/api/groups/{gid}/members/{member}/admin")
+def set_admin(gid: str, member: str, email: str = Depends(current_user)):
+    group = admin_group(gid, email)
+    if member not in group["members"]:
+        raise HTTPException(status_code=404, detail="Not a member")
+    if member == group["owner"]:
+        raise HTTPException(status_code=400, detail="The owner is always an administrator")
+    if member not in group_admins(group):
+        group["admins"].append(member)
+        storage.save_group(group)
+    return {"admins": group_admins(group)}
+
+
+@app.delete("/api/groups/{gid}/members/{member}/admin")
+def remove_admin(gid: str, member: str, email: str = Depends(current_user)):
+    group = admin_group(gid, email)
+    if member == group["owner"]:
+        raise HTTPException(status_code=400, detail="The owner is always an administrator")
+    if member not in group["members"]:
+        raise HTTPException(status_code=404, detail="Not a member")
+    if member in group_admins(group):
+        group["admins"].remove(member)
+        storage.save_group(group)
+    return {"admins": group_admins(group)}
 
 
 @app.delete("/api/groups/{gid}")
@@ -347,10 +395,17 @@ def _build_transaction(group, body, tid=None):
         raise HTTPException(status_code=400, detail="split_mode must be 'percent' or 'amount'")
 
     split = {p: float(v) for p, v in body.split.items()}
-    if set(split) != set(group["members"]):
-        raise HTTPException(status_code=400, detail="Every member must appear in the split")
+    if set(split) - set(group["members"]):
+        raise HTTPException(status_code=400, detail="Every split member must be a group member")
     if any(v < 0 for v in split.values()):
         raise HTTPException(status_code=400, detail="Split values must not be negative")
+
+    split = {p: v for p, v in split.items() if v > 0}
+    if not split:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one member must have a non-zero share",
+        )
 
     if mode == "percent":
         total = float(body.total_amount or 0)

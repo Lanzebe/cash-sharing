@@ -88,6 +88,7 @@ def create_group(name, owner, currency="ZAR"):
             "name": name,
             "owner": owner,
             "members": [owner],
+            "admins": [owner],
             "currency": currency,
             "tags": list(default_tags),
         }
@@ -99,6 +100,7 @@ def create_group(name, owner, currency="ZAR"):
 
 def save_group(group):
     with _lock:
+        group.setdefault("admins", [group.get("owner")])
         groups = list_groups()
         for i, g in enumerate(groups):
             if g["id"] == group["id"]:

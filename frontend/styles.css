@@ -515,12 +515,34 @@ tbody tr:hover {
   border-radius: 999px;
   padding: 6px 12px;
   font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .chips li[data-guest] {
   background: var(--accent-soft-bg);
   color: var(--accent-soft-text);
   font-style: italic;
+}
+
+.member-admin {
+  background: var(--accent-soft-bg);
+  color: var(--accent-soft-text);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 6px;
+  font-size: 0.75rem;
+  font-style: normal;
+}
+
+.admin-toggle {
+  margin-left: 6px;
+  font-size: 0.8rem;
+}
+
+.danger-zone h3 {
+  margin: 14px 0 6px;
 }
 
 .chip {
@@ -567,8 +589,16 @@ tbody tr:hover {
 .split-name {
   font-size: 0.95rem;
   font-weight: 600;
-  min-width: 120px;
+  min-width: 110px;
   flex-shrink: 0;
+}
+
+.split-include {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  padding: 0;
 }
 
 .split-unit {
